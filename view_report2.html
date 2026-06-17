@@ -1,0 +1,18 @@
+<div id="view-report2" class="view">
+  <div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
+      <div>
+        <h3 class="card-title" id="report2-title" style="font-size:1.5rem; color:var(--primary); margin-bottom:10px; border:none;">予実差異報告</h3>
+        <p style="font-size: 0.9rem; color: #666; margin: 0;">※詳細分析にてコメントが入力されている科目・取引先のみをピックアップしています。</p>
+      </div>
+      <div class="form-group" style="margin: 0; flex-direction: row; align-items: center; gap: 10px;">
+        <label style="margin: 0; white-space: nowrap;">表示グループ:</label>
+        <select id="report2-grouping" onchange="reRenderCurrentData()" style="padding: 8px; font-weight: bold; border-radius: 4px; border-color: var(--primary);">
+          <option value="team">チーム別</option>
+          <option value="subject">勘定科目別</option>
+        </select>
+      </div>
+    </div>
+    <div id="report2-container"></div>
+  </div>
+</div>

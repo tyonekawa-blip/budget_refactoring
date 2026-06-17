@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>SPenD Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <?!= include('css'); ?>
+</head>
+<body>
+  <div id="access-denied-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:#f3f6f9; z-index:9999; flex-direction:column; align-items:center; justify-content:center;">
+    <span class="material-icons" style="font-size: 5rem; color: #e74a3b; margin-bottom: 20px;">gpp_bad</span>
+    <h2 style="color: #3f4254; margin-bottom: 10px;">アクセス権限がありません</h2>
+    <p style="color: #7e8299; text-align: center; line-height: 1.6;">このシステムを利用するには、事前のユーザー登録が必要です。<br>ご自身のGoogleアカウント（<span id="denied-email" style="font-weight:bold; color:var(--primary);"></span>）の利用申請を管理者に行ってください。</p>
+  </div>
+
+  <div id="loading-overlay" style="display: flex;">
+    <div class="progress-container">
+      <div class="goal-post"><div class="goal-flag-cloth">GOAL</div></div>
+      <div id="runner-wrapper">
+        <div id="chikorita-target" class="chikorita"><div class="leaf-wrapper"><div class="leaf"></div></div><div class="head"><div class="eye"></div></div><div class="necklace"></div><div class="body"></div><div class="foot front"></div><div class="foot back"></div></div>
+      </div>
+      <div class="progress-bar-bg"><div id="progress-bar-fill"></div></div>
+    </div>
+    <div id="loading-text" style="font-weight: bold; color: var(--primary); text-align: center; white-space: pre-wrap; font-size: 1.1rem;"></div>
+  </div>
+
+  <div id="importActionModal" class="modal">
+    <div class="modal-content" style="max-width: 500px;">
+      <span class="close" onclick="document.getElementById('importActionModal').style.display='none'">&times;</span>
+      <h3 style="margin-top: 0; color: var(--primary); border-bottom: 1px solid #eee; padding-bottom:10px;"><span class="material-icons" style="vertical-align: middle;">cloud_download</span> <span id="importModalTitleMonth"></span> データの取込</h3>
+      <input type="hidden" id="importModalTargetMonth">
+      <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+        <label style="color: #333; font-size: 0.95rem; font-weight:bold;">何をインポートしますか？</label>
+        <div class="import-options" style="margin-top:10px;">
+          <label><input type="radio" name="importActionType" value="all" checked> 予算と実績 両方</label>
+          <label><input type="radio" name="importActionType" value="budget"> 予算のみ</label>
+          <label><input type="radio" name="importActionType" value="actual"> 実績のみ</label>
+        </div>
+        <button class="btn" style="background: #f6c23e; color: #333; width: 100%; margin-top: 20px;" onclick="executePageImport()"><span class="material-icons">play_arrow</span> 取込を実行する</button>
+      </div>
+      <div style="text-align:right;"><button class="btn" style="background:#fff; color:#e74a3b; border:1px solid #e74a3b; padding:5px 10px; font-size:0.8rem;" onclick="executePageClear()"><span class="material-icons" style="font-size:1rem;">delete</span> この月のデータをクリア</button></div>
+    </div>
+  </div>
+
+  <div class="sidebar" id="appSidebar" style="display:none;">
+    <div class="spend-logo">
+      SPenD
+      <svg viewBox="0 0 20 30" preserveAspectRatio="xMidYMid meet">
+        <path d="M15,0 L2,16 L10,16 L5,30 L18,12 L10,12 Z" fill="#00e5ff" filter="drop-shadow(0 0 2px #00e5ff)"></path>
+      </svg>
+    </div>
+    <div class="nav-item active" data-menu="dashboard" onclick="switchView('dashboard')"><span class="material-icons">analytics</span>ダッシュボード</div>
+    <div class="nav-item" data-menu="drilldown" onclick="switchView('drilldown')"><span class="material-icons">table_chart</span>詳細分析</div>
+    
+    <div class="nav-section" data-menu="report,report2,report_zaimu,report_soukai">
+      <div style="margin: 20px 20px 5px 20px; font-size: 0.8rem; color: #7e8299; font-weight: bold;">レポート・会議資料</div>
+      <div class="nav-item" data-menu="report" onclick="switchView('report')"><span class="material-icons">summarize</span>報告資料 (サマリ)</div>
+      <div class="nav-item" data-menu="report2" onclick="switchView('report2')"><span class="material-icons">comment_bank</span>報告資料 (コメント抜粋)</div>
+      <div class="nav-item" data-menu="report_zaimu" onclick="switchView('report_zaimu')"><span class="material-icons">trending_up</span>財務戦略会議用</div>
+      <div class="nav-item" data-menu="report_soukai" onclick="switchView('report_soukai')"><span class="material-icons">campaign</span>創会用レポート</div>
+    </div>
+    
+    <div class="nav-section" data-menu="import,actualSettings,settings,segSettings,userSettings,close">
+      <div style="margin: 20px 20px 5px 20px; font-size: 0.8rem; color: #7e8299; font-weight: bold;">各種設定・業務</div>
+      <div class="nav-item" data-menu="import" onclick="switchView('import')"><span class="material-icons">cloud_sync</span>取込管理</div>
+      <div class="nav-item" data-menu="actualSettings" onclick="switchView('actualSettings')"><span class="material-icons">rule</span>実績データ表示設定</div>
+      <div class="nav-item" data-menu="settings" onclick="switchView('settings')"><span class="material-icons">settings</span>科目マスタ表示設定</div>
+      <div class="nav-item" data-menu="segSettings" onclick="switchView('segSettings')"><span class="material-icons">corporate_fare</span>報告部署編成</div>
+      <div class="nav-item" data-menu="userSettings" onclick="switchView('userSettings')"><span class="material-icons">manage_accounts</span>ユーザー権限設定</div>
+      <div class="nav-item" data-menu="close" onclick="switchView('close')"><span class="material-icons">lock</span>システム設定・締め</div>
+    </div>
+
+    <div class="nav-section" data-menu="manual">
+      <div style="margin: 20px 20px 5px 20px; font-size: 0.8rem; color: #7e8299; font-weight: bold;">ヘルプ</div>
+      <div class="nav-item" data-menu="manual" onclick="switchView('manual')"><span class="material-icons">help_outline</span>マニュアル（使い方）</div>
+    </div>
+  </div>
+
+  <div class="main-content" id="appMainContent" style="display:none;">
+    <div class="header">
+      <h2 id="page-title" style="margin:0; font-size: 1.2rem;">ダッシュボード</h2>
+      <div style="display:flex; align-items:center; gap:15px;">
+        <div id="statusBadge" style="display:none; background:#1cc88a; color:#fff; padding:5px 15px; border-radius:20px; font-size:0.9rem; font-weight:bold;">
+          <span class="material-icons" style="font-size:1rem; vertical-align:middle;">lock</span> 締め完了
+        </div>
+        <div style="background:#eef3f8; padding:5px 10px; border-radius:4px; font-size:0.85rem; display:flex; align-items:center; gap:10px;">
+          <span class="material-icons" style="font-size:1.1rem; color:var(--primary);">account_circle</span>
+          <span id="login-user-info" style="color:var(--primary); font-weight:bold;">認証中...</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="content-body">
+      <div id="filter-controls" class="card">
+        <div style="display: flex; align-items: flex-end; flex-wrap: wrap; gap: 10px;">
+          <div class="form-group">
+            <label>年度 (期首10月)</label>
+            <select id="targetYear" onchange="updateMonthOptions(this.value)">
+              <option value="2026">FY2026</option>
+              <option value="2025">FY2025</option>
+              <option value="2024">FY2024</option>
+            </select>
+          </div>
+          <div class="form-group"><label>対象期間</label><select id="targetMonth"></select></div>
+          <div class="form-group" id="filter-segment-group"><label>選択チーム</label><select id="segment"></select></div>
+          <div class="form-group"><label>表示単位</label><select id="displayUnit" onchange="reRenderCurrentData()"><option value="1">円</option><option value="1000" selected>千円</option></select></div>
+          <div style="flex-grow: 1;"></div>
+          <button class="btn" style="background: #fff; color: #e74a3b; border: 1px solid #e74a3b;" onclick="window.print()"><span class="material-icons">picture_as_pdf</span> PDF出力</button>
+          <button class="btn" onclick="executeProcess()"><span class="material-icons">dashboard</span> 画面に表示</button>
+        </div>
+      </div>
+
+      <div id="initial-message"><span class="material-icons" style="font-size: 3rem; color: #ccc; margin-bottom: 10px;">touch_app</span><br>条件を選択し、右上の<strong>「画面に表示」</strong>ボタンを押してデータを取得してください。</div>
+
+      <?!= include('view_dashboard'); ?>
+      <?!= include('view_drilldown'); ?>
+      <?!= include('view_report'); ?>
+      <?!= include('view_report2'); ?>
+      
+      <?!= include('view_report_zaimu'); ?>
+      <?!= include('view_report_soukai'); ?>
+      
+      <?!= include('view_import'); ?>
+      <?!= include('view_actualSettings'); ?>
+      <?!= include('view_settings'); ?>
+      <?!= include('view_segSettings'); ?>
+      <?!= include('view_userSettings'); ?>
+      <?!= include('view_close'); ?>
+      <?!= include('view_manual'); ?>
+
+    </div>
+  </div>
+
+  <?!= include('js_common'); ?>
+  <?!= include('js_controller'); ?>
+  <?!= include('js_dashboard'); ?>
+  <?!= include('js_drilldown'); ?>
+  <?!= include('js_report'); ?>
+  
+  <?!= include('js_report_zaimu'); ?>
+  <?!= include('js_report_soukai'); ?>
+  
+  <?!= include('js_import'); ?>
+  <?!= include('js_settings_master'); ?>
+  <?!= include('js_settings_team'); ?>
+  <?!= include('js_settings_user'); ?>
+</body>
+</html>

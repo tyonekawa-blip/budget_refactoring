@@ -1,0 +1,168 @@
+<script>
+  // ==========================================
+  // 1. グローバル変数
+  // ==========================================
+  let globalPackage = null; 
+  let masterData = {}; 
+  let tempTeams = [];
+  let tempUnassigned = [];
+  let loadInterval;
+  let currentImportTab = 'budget'; 
+  let currentImportData = null;
+  let myBudgetChart = null; 
+  let myActualChart = null;
+  let progressInterval = null; 
+
+  // ==========================================
+  // 2. システム共通・通信ユーティリティ
+  // ==========================================
+  function handleGenericError(e, funcName) {
+    hideLoading(true); 
+    alert(`システムエラーが発生しました (${funcName})\n内容: ${e.message}\n管理者に確認してください。`);
+  }
+
+  // ★ 改善適用：GASサーバー通信をPromiseでラップする共通関数
+  function runGasAsync(funcName, ...args) {
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(result => resolve(result))
+        .withFailureHandler(error => reject(error))
+        [funcName](...args);
+    });
+  }
+
+  function reloadApp(msg) {
+    showLoading(msg || "設定を反映しています...");
+    google.script.run.withSuccessHandler(data => {
+      if(data && data.error) { hideLoading(true); alert("エラー: " + data.error); return; }
+      masterData = data || {};
+      initTeamSettings(); 
+      renderUserSettingsUI(); 
+      applyUserPermissions(masterData.activeEmail);
+      if (globalPackage) { executeProcess(); } else { hideLoading(); }
+    }).withFailureHandler(e => handleGenericError(e, 'reloadApp')).getInitialData();
+  }
+
+  // ==========================================
+  // 3. UI・ローディング制御
+  // ==========================================
+  function showLoading(text) { 
+    const textEl = document.getElementById('loading-text');
+    if(textEl) textEl.innerText = text;
+    
+    const overlay = document.getElementById('loading-overlay');
+    overlay.style.display = 'flex';
+    
+    const fill = document.getElementById('progress-bar-fill');
+    const runner = document.getElementById('runner-wrapper');
+    const chikorita = document.getElementById('chikorita-target');
+    
+    if(fill && runner && chikorita) {
+      fill.style.transition = 'none';
+      runner.style.transition = 'none';
+      fill.style.width = '0%';
+      runner.style.left = '0%';
+      chikorita.classList.remove('is-finished');
+      
+      void fill.offsetWidth;
+      
+      fill.style.transition = 'width 0.3s linear';
+      runner.style.transition = 'left 0.3s linear';
+      
+      let progress = 0;
+      clearInterval(progressInterval);
+      progressInterval = setInterval(() => {
+        progress += (90 - progress) * 0.1;
+        if(progress > 89.5) progress = 90;
+        fill.style.width = progress + '%';
+        runner.style.left = progress + '%';
+      }, 300);
+    }
+  }
+
+  function hideLoading(instant = false) { 
+    const overlay = document.getElementById('loading-overlay');
+    const fill = document.getElementById('progress-bar-fill');
+    const runner = document.getElementById('runner-wrapper');
+    const chikorita = document.getElementById('chikorita-target');
+    
+    clearInterval(progressInterval);
+    
+    if(instant || !fill || !runner || !chikorita) {
+      overlay.style.display = 'none';
+      return;
+    }
+    
+    fill.style.width = '100%';
+    runner.style.left = '100%';
+    chikorita.classList.add('is-finished');
+    
+    setTimeout(() => { overlay.style.display = 'none'; }, 400); 
+  }
+
+  // ==========================================
+  // 4. データフォーマット・汎用計算
+  // ==========================================
+  function formatMoney(amount, unit) { 
+    let num = Math.round(amount / unit);
+    if (num < 0) return '▲ ' + Math.abs(num).toLocaleString();
+    return num.toLocaleString(); 
+  }
+  
+  function formatPercent(budget, actual) { 
+    if (budget === 0) return '-'; 
+    const pct = ((actual - budget) / Math.abs(budget)) * 100; 
+    if (pct < 0) return '▲ ' + Math.abs(pct).toFixed(1) + '%';
+    return (pct > 0 ? '+' : '') + pct.toFixed(1) + '%'; 
+  }
+  
+  function formatYTD(budget, actual) { 
+    if (budget === 0) return '-';
+    const pct = (actual / budget) * 100;
+    if (pct < 0) return '▲ ' + Math.abs(pct).toFixed(1) + '%';
+    return pct.toFixed(1) + '%'; 
+  }
+  
+  function formatYoY(actual, prevActual) { 
+    if (prevActual === 0) return '-';
+    const pct = (actual / prevActual) * 100;
+    if (pct < 0) return '▲ ' + Math.abs(pct).toFixed(1) + '%';
+    return pct.toFixed(1) + '%'; 
+  }
+  
+  function getPeriodLabel(p) {
+    if(!p) return '';
+    if(p.includes('_')) {
+      const parts = p.split('_'); return `FY${parts[0]} ${parts[1]}`;
+    }
+    return `${p.substring(0,4)}年${p.substring(4,6)}月`;
+  }
+
+  function getWeatherIconHtml(absDiffPct) {
+    if (absDiffPct <= 5) return `<div class="weather-icon sunny" title="乖離5%以内"></div>`;
+    else if (absDiffPct < 20) return `<div class="weather-icon cloudy" title="乖離5〜20%"></div>`;
+    else if (absDiffPct < 100) return `<div class="weather-icon rainy" title="乖離20〜100%"><div class="rain-drops"></div></div>`; 
+    else return `<div class="weather-icon thunder" title="乖離100%以上"><div class="lightning">⚡</div></div>`;
+  }
+
+  function updateMonthOptions(currentYearInput) {
+    const targetYearEl = document.getElementById('targetYear');
+    if(!targetYearEl) return;
+    const year = currentYearInput ? parseInt(currentYearInput) : parseInt(targetYearEl.value);
+    const mSel = document.getElementById('targetMonth');
+    if(!mSel) return;
+    mSel.innerHTML = '';
+    for(let i=0; i<12; i++){
+      let y = year; let m = 10 + i;
+      if(m > 12){ y++; m -= 12; }
+      mSel.add(new Option(`${y}年${m.toString().padStart(2, '0')}月`, `${y}${m.toString().padStart(2, '0')}`));
+    }
+    mSel.add(new Option(`-- FY${year} 1Q (10-12月) --`, `${year}_1Q`));
+    mSel.add(new Option(`-- FY${year} 2Q (1-3月) --`, `${year}_2Q`));
+    mSel.add(new Option(`-- FY${year} 3Q (4-6月) --`, `${year}_3Q`));
+    mSel.add(new Option(`-- FY${year} 4Q (7-9月) --`, `${year}_4Q`));
+    mSel.add(new Option(`-- FY${year} 上期 (10-3月) --`, `${year}_H1`));
+    mSel.add(new Option(`-- FY${year} 下期 (4-9月) --`, `${year}_H2`));
+    mSel.add(new Option(`-- FY${year} 通期 --`, `${year}_ALL`));
+  }
+</script>

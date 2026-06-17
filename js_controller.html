@@ -1,0 +1,228 @@
+<script>
+  window.onload = function() {
+    google.script.run.withSuccessHandler(data => {
+      if(data && data.error) { 
+        hideLoading(true);
+        alert("初期データの取得に失敗しました: " + data.error); 
+        return; 
+      }
+      masterData = data || {};
+      const activeEmail = masterData.activeEmail || '';
+      const currentUser = (masterData.users || []).find(u => u.email === activeEmail);
+      
+      if (!currentUser || currentUser.status === '無効') {
+        hideLoading(true);
+        document.getElementById('denied-email').innerText = activeEmail;
+        document.getElementById('access-denied-overlay').style.display = 'flex';
+        return;
+      }
+      
+      const displayName = currentUser.name || activeEmail;
+      document.getElementById('login-user-info').innerText = `${displayName} (${currentUser.role === 'admin' ? '管理者' : '一般'})`;
+      
+      const settingYearEl = document.getElementById('settingCurrentYear');
+      const targetYearEl = document.getElementById('targetYear');
+      if(settingYearEl) settingYearEl.value = masterData.currentYear || '2025';
+      if(targetYearEl) targetYearEl.value = masterData.currentYear || '2025';
+      
+      updateMonthOptions(masterData.currentYear);
+      initTeamSettings(); 
+      applyUserPermissions(activeEmail); 
+      renderUserSettingsUI(); 
+      
+      document.getElementById('appSidebar').style.display = 'flex';
+      document.getElementById('appMainContent').style.display = 'flex';
+      
+      hideLoading(); 
+      
+    }).withFailureHandler(e => {
+      hideLoading(true);
+      handleGenericError(e, 'getInitialData');
+    }).getInitialData();
+  };
+
+  function switchView(viewName) {
+    document.querySelectorAll('.view, .nav-item').forEach(el => el.classList.remove('active'));
+    const viewEl = document.getElementById('view-' + viewName);
+    if(viewEl) viewEl.classList.add('active');
+    const activeNav = document.querySelector(`.nav-item[data-menu="${viewName}"]`);
+    if(activeNav) activeNav.classList.add('active');
+    
+    // ★ 新しいレポートのタイトルを追加
+    const titles = { 
+      'dashboard': 'ダッシュボード', 'drilldown': '詳細分析', 'report': '報告資料 (サマリ)', 'report2': '報告資料 (コメント抜粋)',
+      'report_zaimu': '財務戦略会議用レポート', 'report_soukai': '創会用レポート',
+      'import': '取込管理', 'actualSettings': '実績データ表示設定', 'settings': '科目マスタ表示設定', 'segSettings': '報告部署編成', 'userSettings': 'ユーザー権限設定', 'close': 'システム設定・締め',
+      'manual': 'システム利用マニュアル（使い方）'
+    };
+    const titleEl = document.getElementById('page-title');
+    if(titleEl) titleEl.innerText = titles[viewName] || '';
+
+    const filterBox = document.getElementById('filter-controls');
+    if(filterBox) {
+      const isConfigPage = ['import', 'actualSettings', 'settings', 'segSettings', 'userSettings', 'close', 'manual'].includes(viewName);
+      filterBox.style.display = isConfigPage ? 'none' : 'block';
+    }
+
+    const initMsg = document.getElementById('initial-message');
+    if(initMsg) {
+      if(['dashboard', 'drilldown', 'report', 'report2', 'report_zaimu', 'report_soukai'].includes(viewName)) {
+        initMsg.style.display = globalPackage ? 'none' : 'block';
+      } else {
+        initMsg.style.display = 'none';
+      }
+    }
+
+    if(viewName === 'import') {
+      const iy = document.getElementById('importPageYear');
+      if(iy && iy.options.length === 0) {
+        iy.add(new Option('FY2026', '2026')); iy.add(new Option('FY2025', '2025'));
+        iy.add(new Option('FY2024', '2024'));
+        iy.value = masterData.currentYear || '2025';
+      }
+      loadImportStatus();
+    } else if (viewName === 'actualSettings') {
+      const actualYearEl = document.getElementById('actualSettingYear');
+      const targetYearEl = document.getElementById('targetYear');
+      if (actualYearEl && targetYearEl) actualYearEl.value = targetYearEl.value;
+      loadActualSettings();
+    } else if (viewName === 'settings') {
+      loadSubjectSettings();
+    } else if (viewName === 'close') {
+      loadConfirmedList();
+    }
+  }
+
+  function applyUserPermissions(userEmail) {
+    let user = (masterData.users || []).find(u => u.email === userEmail);
+    if(!user || user.status === '無効') return;
+
+    const isAdmin = user.role === 'admin';
+    document.querySelectorAll('.nav-item').forEach(el => {
+      const menuId = el.getAttribute('data-menu');
+      if(!isAdmin && !(user.menus || []).includes(menuId) && menuId !== 'manual') {
+        el.style.display = 'none';
+      } else {
+        el.style.display = 'flex';
+      }
+    });
+    
+    document.querySelectorAll('.nav-section').forEach(sec => {
+      const items = Array.from(sec.querySelectorAll('.nav-item'));
+      const hasVisibleItem = items.some(item => item.style.display !== 'none');
+      sec.style.display = hasVisibleItem ? 'block' : 'none';
+    });
+    
+    const sel = document.getElementById('segment');
+    if(sel) {
+      sel.innerHTML = '';
+      if(isAdmin) sel.add(new Option('▼ 全社合計 (全チーム合算)', 'all'));
+      (masterData.teamSettings || []).forEach(t => {
+        const hasAccess = isAdmin || (t.segments || []).some(s => (user.segments || []).includes(s));
+        if (hasAccess) sel.add(new Option(t.teamName, t.teamCd));
+      });
+    }
+  }
+
+  function executeProcess() {
+    try {
+      const targetMonthEl = document.getElementById('targetMonth');
+      const segmentEl = document.getElementById('segment');
+      if(!targetMonthEl || !segmentEl) { alert("画面の初期化が完了していません。"); return; }
+      const period = targetMonthEl.value; 
+      const teamCd = segmentEl.value;
+      if(!period || !teamCd) { alert("対象期間またはチームを選択してください。"); return; }
+      
+      showLoading("データを読み込んでいます...");
+      const initMsg = document.getElementById('initial-message'); 
+      if(initMsg) initMsg.style.display = 'none'; 
+
+      google.script.run.withSuccessHandler(pkg => {
+        try { 
+          if(pkg && pkg.error) { hideLoading(true); alert("データ取得エラー: " + pkg.error); return; }
+          globalPackage = pkg || {}; 
+          processAndRender(pkg);
+        } catch(e) { 
+          hideLoading(true); alert("表示処理中にエラーが発生しました\n内容: " + e.message);
+        }
+      }).withFailureHandler(e => {
+        hideLoading(true); alert("サーバー通信エラー\n内容: " + e.message);
+      }).getRawDataPackage(period, teamCd);
+    } catch(err) { alert("エラー: " + err.message); }
+  }
+
+  function reRenderCurrentData() { if(globalPackage) processAndRender(globalPackage); }
+
+  function processAndRender(pkg) {
+    hideLoading(); 
+    
+    const unitEl = document.getElementById('displayUnit'); 
+    const unit = unitEl ? parseInt(unitEl.value) : 1000; 
+    const isClosed = (pkg.closedStatus || {})[`${pkg.params.segmentCd}_${pkg.params.period}`] === true; 
+    setupCloseUI(isClosed);
+    
+    const subjectMap = {};
+    (pkg.masters.subject || []).slice(1).forEach(r => { 
+      const freeCd = String(r[1]).trim(); const acctName = String(r[2]).trim(); 
+      const typeM = parseInt(r[6], 10) || 0; const cdNum = parseInt(freeCd, 10) || 0; 
+      let isPL = (typeM >= 100) || (cdNum >= 6000 && cdNum <= 6999); 
+      if ((pkg.subjectSettings || {})[freeCd] !== undefined) isPL = pkg.subjectSettings[freeCd]; 
+      if (freeCd && isPL) { subjectMap[acctName] = true; } 
+    });
+
+    const monthlyData = {}; 
+    (pkg.params.monthList || []).forEach(ym => monthlyData[ym] = { budget: 0, actual: 0, prevActual: 0 });
+    const analysisData = {};
+    
+    function distributeData(row) {
+      if (!subjectMap[row.acctName]) return; 
+      
+      if(monthlyData[row.month]) {
+        if (!row.isPrev) {
+          monthlyData[row.month][row.type === '予算' ? 'budget' : 'actual'] += row.amount;
+        } else {
+          monthlyData[row.month].prevActual += row.amount;
+        }
+      }
+      
+      if (!row.isPrev && (pkg.params.reportTargetMonths || []).includes(row.month)) {
+        if (!analysisData[row.acctName]) analysisData[row.acctName] = { budget: 0, actual: 0, teams: {} };
+        analysisData[row.acctName][row.type === '予算' ? 'budget' : 'actual'] += row.amount;
+        
+        const tObj = (pkg.teamSettings || []).find(t => t.teamCd === row.teamCd);
+        let tCd = row.teamCd; let tName = row.teamName;
+        if (tObj && tObj.isHidden) { tCd = 'HIDDEN_TEAMS'; tName = 'その他（非表示チーム合算）'; }
+
+        if (!analysisData[row.acctName].teams[tCd]) analysisData[row.acctName].teams[tCd] = { name: tName, budget: 0, actual: 0, segments: {} };
+        analysisData[row.acctName].teams[tCd][row.type === '予算' ? 'budget' : 'actual'] += row.amount;
+        
+        let sCd = row.segCd; 
+        let sName = ((masterData.segments || []).find(s=>s.cd===sCd)||{}).name || row.segName || sCd;
+        if (tObj && tObj.isHidden) { sCd = 'HIDDEN_SEGS'; sName = 'その他（非表示セグメント合算）'; }
+
+        if (!analysisData[row.acctName].teams[tCd].segments[sCd]) analysisData[row.acctName].teams[tCd].segments[sCd] = { name: sName, budget: 0, actual: 0, partners: {} };
+        analysisData[row.acctName].teams[tCd].segments[sCd][row.type === '予算' ? 'budget' : 'actual'] += row.amount;
+        
+        let pName = row.partnerName; 
+        if (tObj && tObj.isHidden) pName = 'その他（非表示取引先合算）';
+
+        if (!analysisData[row.acctName].teams[tCd].segments[sCd].partners[pName]) analysisData[row.acctName].teams[tCd].segments[sCd].partners[pName] = { budget: 0, actual: 0 };
+        analysisData[row.acctName].teams[tCd].segments[sCd].partners[pName][row.type === '予算' ? 'budget' : 'actual'] += row.amount;
+      }
+    }
+    
+    (pkg.cacheData.budget || []).forEach(distributeData);
+    (pkg.cacheData.actuals || []).forEach(distributeData);
+    (pkg.cacheData.prevActuals || []).forEach(distributeData);
+
+    renderDashboardSummary(monthlyData, unit, pkg.params); 
+    renderMatrixTable(pkg, subjectMap, unit); 
+    renderAnalysisTable(analysisData, unit, pkg.comments || {}, pkg.params.period, pkg.params.segmentCd, isClosed); 
+    renderReportView(pkg, subjectMap, unit, isClosed);
+    renderReport2View(pkg, subjectMap, unit);
+    
+    // ★ 新しいレポートのレンダリング呼び出し
+    if (typeof renderReportZaimu === 'function') renderReportZaimu(pkg, subjectMap, unit);
+    if (typeof renderReportSoukai === 'function') renderReportSoukai(pkg, subjectMap, unit);
+  }
+</script>

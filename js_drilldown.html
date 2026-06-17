@@ -1,0 +1,239 @@
+<script>
+  // ==========================================
+  // 詳細分析 (ドリルダウン) 画面用ロジック
+  // ==========================================
+
+  function renderAnalysisTable(analysisData, unit, savedComments, targetPeriod, selectedTeamCd, isClosed) {
+    const tbody = document.getElementById('analysis-tbody'); if(!tbody) return;
+    tbody.innerHTML = '';
+    
+    function formatDiff(amount, unit, showSign) {
+      let num = Math.round(amount / unit);
+      if (num === 0) return '0';
+      if (num > 0) return (showSign ? '＋ ' : '') + num.toLocaleString();
+      return '▲ ' + Math.abs(num).toLocaleString();
+    }
+
+    function formatDiffPct(b, a) {
+      if (b === 0) return '-';
+      const diff = a - b;
+      return ((diff / b) * 100).toFixed(1) + '%';
+    }
+    
+    const sortedAccts = Object.keys(analysisData).sort((a, b) => Math.abs(analysisData[b].actual - analysisData[b].budget) - Math.abs(analysisData[a].actual - analysisData[a].budget));
+    
+    const lockAttr = isClosed ? 'disabled' : ''; 
+    const btnStyle = isClosed ? 'display:none;' : '';
+
+    const fragment = document.createDocumentFragment();
+
+    sortedAccts.forEach((acctName, aIdx) => {
+      const acctData = analysisData[acctName]; const diff = acctData.actual - acctData.budget; 
+      const diffClass = diff > 0 ? 'val-negative' : 'val-positive'; const acctId = 'acct_' + aIdx;
+      
+      // 1. 勘定科目行
+      const trAcct = document.createElement('tr'); trAcct.className = 'acct-row'; 
+      trAcct.innerHTML = `
+        <td onclick="toggleTeams('${acctId}')" style="cursor:pointer;">
+          <span class="material-icons" style="font-size:1.2rem; vertical-align:middle; color:var(--primary);">folder</span> 
+          <span style="font-weight:bold; font-size:1.05rem;">${acctName}</span>
+        </td>
+        <td style="text-align:right;">${formatMoney(acctData.budget, unit)}</td>
+        <td style="text-align:right;">${formatMoney(acctData.actual, unit)}</td>
+        <td style="text-align:right; font-weight:bold;" class="${diffClass}">${formatDiff(diff, unit, true)}</td>
+        <td style="text-align:right;" class="${diffClass}">${formatDiffPct(acctData.budget, acctData.actual)}</td>
+        <td></td>
+      `; 
+      fragment.appendChild(trAcct);
+
+      Object.keys(acctData.teams).forEach((tCd, tIdx) => {
+        const teamData = acctData.teams[tCd]; const tDiff = teamData.actual - teamData.budget; 
+        const tDiffClass = tDiff > 0 ? 'val-negative' : 'val-positive'; const teamKey = `${acctId}_${tIdx}`;
+        
+        // 2. チーム行
+        const trTeam = document.createElement('tr'); trTeam.className = `team-row team-${acctId}`; trTeam.style.display = 'none';
+        trTeam.innerHTML = `
+          <td style="padding-left:30px; cursor:pointer;" onclick="toggleSegments('${teamKey}')">
+            <span class="material-icons" style="font-size:1.1rem; vertical-align:middle; color:#888;">subdirectory_arrow_right</span> ${teamData.name}
+          </td>
+          <td style="text-align:right;">${formatMoney(teamData.budget, unit)}</td>
+          <td style="text-align:right;">${formatMoney(teamData.actual, unit)}</td>
+          <td style="text-align:right;" class="${tDiffClass}">${formatDiff(tDiff, unit, true)}</td>
+          <td style="text-align:right;" class="${tDiffClass}">${formatDiffPct(teamData.budget, teamData.actual)}</td>
+          <td></td>
+        `; 
+        fragment.appendChild(trTeam);
+
+        Object.keys(teamData.segments).forEach((sCd, sIdx) => {
+          const segData = teamData.segments[sCd]; const sDiff = segData.actual - segData.budget; 
+          const sDiffClass = sDiff > 0 ? 'val-negative' : 'val-positive'; const segKey = `${teamKey}_${sIdx}`;
+          const sName = segData.name || sCd;
+          
+          // --- セグメント毎のコメントUI作成 ---
+          const cmtKey = `${sCd}_${acctName}`;
+          const currentCmt = savedComments[cmtKey] || '';
+          const sElemId = `s_${aIdx}_${tIdx}_${sIdx}`; // 識別用インデックスID
+          
+          // コメントの有無でボタンのデザイン・文字を出し分け
+          const sBtnText = currentCmt ? '入力済' : '入力';
+          const sBtnStyle = currentCmt ? 'background:#1cc88a; color:#fff; border:1px solid #1cc88a;' : 'background:#fff; color:var(--primary); border:1px solid var(--primary);';
+          const cmtDisplay = currentCmt ? `<span style="display:inline-block; max-width:180px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; vertical-align:middle; margin-right:8px;" title="${currentCmt.replace(/"/g, '&quot;')}">${currentCmt}</span>` : '<span style="color:#aaa; font-size:0.85rem; margin-right:8px;">未入力</span>';
+          
+          const sCmtHtml = `<div style="display:flex; justify-content:space-between; align-items:center;">
+              <div id="cmt_display_${sElemId}" style="flex:1;">${cmtDisplay}</div>
+              <button id="cmt_btn_${sElemId}" class="btn" style="${sBtnStyle} padding:4px 8px; display:flex; align-items:center; font-size:0.8rem; white-space:nowrap; ${btnStyle}" onclick="openCommentModal('${targetPeriod}', '${sCd}', '${acctName}', '${sName}', '${acctName}', '${sElemId}')">
+                <span class="material-icons" style="font-size:1rem; margin-right:4px;">edit</span>${sBtnText}
+              </button>
+              <input type="hidden" id="cmt_val_${sElemId}" value="${currentCmt.replace(/"/g, '&quot;')}">
+            </div>`;
+
+          // 3. セグメント行
+          const trSeg = document.createElement('tr'); trSeg.className = `seg-row team-${acctId} seg-${teamKey}`; trSeg.style.display = 'none';
+          trSeg.innerHTML = `
+            <td style="padding-left:60px; cursor:pointer;" onclick="togglePartners('${segKey}')">
+              <span class="material-icons" style="font-size:1.1rem; vertical-align:middle; color:#ccc;">subdirectory_arrow_right</span> ${sName}
+            </td>
+            <td style="text-align:right; color:#555;">${formatMoney(segData.budget, unit)}</td>
+            <td style="text-align:right; color:#555;">${formatMoney(segData.actual, unit)}</td>
+            <td style="text-align:right; color:#555;" class="${sDiffClass}">${formatDiff(sDiff, unit, true)}</td>
+            <td style="text-align:right; color:#555;" class="${sDiffClass}">${formatDiffPct(segData.budget, segData.actual)}</td>
+            <td>${sCmtHtml}</td>
+          `; 
+          fragment.appendChild(trSeg);
+
+          Object.keys(segData.partners).forEach((pName, pIdx) => {
+            const pData = segData.partners[pName]; const pDiff = pData.actual - pData.budget; 
+            const pDiffClass = pDiff > 0 ? 'val-negative' : 'val-positive';
+            
+            // --- ★ 追加: 取引先毎のコメントUI作成 ---
+            const pCmtKey = `${sCd}_${acctName}__${pName}`; // 取引先用コメントキー
+            const currentPCmt = savedComments[pCmtKey] || '';
+            const pElemId = `p_${aIdx}_${tIdx}_${sIdx}_${pIdx}`; // 識別用インデックスID
+            
+            const pBtnText = currentPCmt ? '入力済' : '入力';
+            const pBtnStyle = currentPCmt ? 'background:#1cc88a; color:#fff; border:1px solid #1cc88a;' : 'background:#fff; color:var(--primary); border:1px solid var(--primary);';
+            const pCmtDisplay = currentPCmt ? `<span style="display:inline-block; max-width:180px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; vertical-align:middle; margin-right:8px; font-size:0.8rem; color:#666;" title="${currentPCmt.replace(/"/g, '&quot;')}">${currentPCmt}</span>` : '<span style="color:#aaa; font-size:0.8rem; margin-right:8px;">未入力</span>';
+            
+            const pCmtHtml = `<div style="display:flex; justify-content:space-between; align-items:center;">
+                <div id="cmt_display_${pElemId}" style="flex:1;">${pCmtDisplay}</div>
+                <button id="cmt_btn_${pElemId}" class="btn" style="${pBtnStyle} padding:3px 6px; display:flex; align-items:center; font-size:0.75rem; white-space:nowrap; ${btnStyle}" onclick="openCommentModal('${targetPeriod}', '${sCd}', '${acctName}__${pName}', '${sName} ＞ ${pName}', '${acctName}', '${pElemId}')">
+                  <span class="material-icons" style="font-size:0.9rem; margin-right:3px;">edit</span>${pBtnText}
+                </button>
+                <input type="hidden" id="cmt_val_${pElemId}" value="${currentPCmt.replace(/"/g, '&quot;')}">
+              </div>`;
+
+            // 4. 取引先行
+            const trPartner = document.createElement('tr'); trPartner.className = `partner-row team-${acctId} seg-${teamKey} partner-${segKey}`; trPartner.style.display = 'none';
+            trPartner.innerHTML = `
+              <td style="padding-left:90px; color:#666; font-size:0.85rem;">
+                <span class="material-icons" style="font-size:1rem; vertical-align:middle; color:#ddd;">storefront</span> ${pName}
+              </td>
+              <td style="text-align:right; color:#888; font-size:0.85rem;">${formatMoney(pData.budget, unit)}</td>
+              <td style="text-align:right; color:#888; font-size:0.85rem;">${formatMoney(pData.actual, unit)}</td>
+              <td style="text-align:right; font-size:0.85rem;" class="${pDiffClass}">${formatDiff(pDiff, unit, false)}</td>
+              <td style="text-align:right; font-size:0.85rem;" class="${pDiffClass}">${formatDiffPct(pData.budget, pData.actual)}</td>
+              <td>${pCmtHtml}</td> `; 
+            fragment.appendChild(trPartner);
+          });
+        });
+      });
+    });
+
+    tbody.appendChild(fragment);
+  }
+
+  function toggleVisibility(selector) {
+    document.querySelectorAll(selector).forEach(el => {
+      if (el.style.display === 'none' || el.style.display === '') {
+        el.style.display = 'table-row';
+      } else {
+        el.style.display = 'none';
+      }
+    });
+  }
+
+  function toggleTeams(acctId) { toggleVisibility(`.team-${acctId}`); }
+  function toggleSegments(teamKey) { toggleVisibility(`.seg-${teamKey}`); }
+  function togglePartners(segKey) { toggleVisibility(`.partner-${segKey}`); }
+
+  // --- モーダル制御 ---
+  function openCommentModal(period, segCd, key, displayName, acctName, elemId) {
+    const valEl = document.getElementById(`cmt_val_${elemId}`);
+    const val = valEl ? valEl.value : '';
+    document.getElementById('comment-modal-period').value = period;
+    document.getElementById('comment-modal-segCd').value = segCd;
+    document.getElementById('comment-modal-key').value = key;
+    document.getElementById('comment-modal-text').value = val;
+    document.getElementById('comment-modal-title').innerText = `【${displayName}】 ${acctName}`;
+    document.getElementById('comment-modal-elem-id').value = elemId; // ターゲット行のIDを退避
+    document.getElementById('comment-modal-overlay').style.display = 'flex';
+    document.getElementById('comment-modal-text').focus();
+  }
+
+  function closeCommentModal() {
+    document.getElementById('comment-modal-overlay').style.display = 'none';
+  }
+
+  function saveCommentFromModal() {
+    const period = document.getElementById('comment-modal-period').value;
+    const segCd = document.getElementById('comment-modal-segCd').value;
+    const key = document.getElementById('comment-modal-key').value;
+    const text = document.getElementById('comment-modal-text').value;
+    const elemId = document.getElementById('comment-modal-elem-id').value;
+    
+    const btn = document.getElementById('comment-modal-save-btn');
+    const originalText = btn.innerText;
+    btn.innerText = '保存中...';
+    btn.disabled = true;
+
+    google.script.run.withSuccessHandler(() => {
+      btn.innerText = originalText;
+      btn.disabled = false;
+      
+      // 画面上の該当要素をリアルタイム書き換え
+      const displayEl = document.getElementById(`cmt_display_${elemId}`);
+      const valEl = document.getElementById(`cmt_val_${elemId}`);
+      const btnEl = document.getElementById(`cmt_btn_${elemId}`);
+      
+      if(valEl) valEl.value = text;
+      if(displayEl) {
+        if(text) {
+          const safeText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+          displayEl.innerHTML = `<span style="display:inline-block; max-width:180px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; vertical-align:middle; margin-right:8px; font-size:0.85rem;" title="${safeText}">${safeText}</span>`;
+          
+          // ★ 入力済ステータスへ変更（文言とボタンの色を緑に変更）
+          if(btnEl) {
+            btnEl.innerHTML = `<span class="material-icons" style="font-size:1rem; margin-right:4px;">edit</span>入力済`;
+            btnEl.style.cssText = "background:#1cc88a; color:#fff; border:1px solid #1cc88a; padding:4px 8px; display:flex; align-items:center; font-size:0.8rem; white-space:nowrap;";
+            if (elemId.startsWith('p_')) {
+              btnEl.style.padding = "3px 6px";
+              btnEl.style.fontSize = "0.75rem";
+            }
+          }
+        } else {
+          displayEl.innerHTML = '<span style="color:#aaa; font-size:0.85rem; margin-right:8px;">未入力</span>';
+          // 空白に戻されたら「未入力（白）」に戻す
+          if(btnEl) {
+            btnEl.innerHTML = `<span class="material-icons" style="font-size:1rem; margin-right:4px;">edit</span>入力`;
+            btnEl.style.cssText = "background:#fff; color:var(--primary); border:1px solid var(--primary); padding:4px 8px; display:flex; align-items:center; font-size:0.8rem; white-space:nowrap;";
+            if (elemId.startsWith('p_')) {
+              btnEl.style.padding = "3px 6px";
+              btnEl.style.fontSize = "0.75rem";
+            }
+          }
+        }
+      }
+      
+      // グローバルキャッシュの書き換え
+      if(globalPackage && globalPackage.comments) {
+        globalPackage.comments[key] = text;
+      }
+      
+      closeCommentModal();
+    }).withFailureHandler(e => {
+      btn.innerText = originalText;
+      btn.disabled = false;
+      handleGenericError(e, 'saveComment');
+    }).saveComment(period, segCd, key, text);
+  }
+</script>

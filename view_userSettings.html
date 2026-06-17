@@ -1,0 +1,24 @@
+<div id="view-userSettings" class="view">
+  <div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 20px;">
+      <h3 class="card-title" style="border: none; margin: 0; padding: 0;">ユーザー権限設定</h3>
+      <div style="display: flex; gap: 10px;">
+        <button class="btn" style="background:#fff; color:#36b9cc; border: 1px solid #36b9cc; font-size: 0.85rem;" onclick="exportUserSettingsCSV()">
+          <span class="material-icons" style="font-size:1rem;">download</span> CSV出力
+        </button>
+        <button class="btn" style="background:#fff; color:#f6c23e; border: 1px solid #f6c23e; font-size: 0.85rem;" onclick="document.getElementById('importUserFile').click()">
+          <span class="material-icons" style="font-size:1rem;">upload</span> CSV読込
+        </button>
+        <input type="file" id="importUserFile" accept=".csv" style="display:none" onchange="importUserSettingsCSV(event)">
+        <button class="btn" style="background:#1cc88a; font-size: 0.9rem; margin-left: 10px;" onclick="saveUserSettingsBtn()">
+          <span class="material-icons" style="font-size:1rem;">save</span> 画面の設定を保存
+        </button>
+      </div>
+    </div>
+    <p style="font-size: 0.85rem; color: #666; margin-bottom: 20px;">各ユーザーのアクセス権限を設定します。CSVでの一括編集も可能です（許可メニューは 1:対象 / 0:対象外 で入力）。「無効」に設定されたユーザーはログインできません。</p>
+    <div id="user-settings-container" style="display:flex; flex-direction:column; gap:15px;"></div>
+    <button class="btn" style="margin-top: 15px; background: #fff; color: var(--primary); border: 1px dashed var(--primary); width:100%; padding:10px;" onclick="addUserSettingRow()">
+      <span class="material-icons">person_add</span> ユーザーを1名追加
+    </button>
+  </div>
+</div>

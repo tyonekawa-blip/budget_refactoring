@@ -1,0 +1,104 @@
+<div id="view-manual" class="view">
+  <div class="import-tabs" style="margin-bottom: 25px;">
+    <div id="manual-tab-user" class="import-tab active" onclick="switchManualTab('user')">
+      <span class="material-icons" style="vertical-align:middle; font-size:1.2rem;">menu_book</span> システム概要と使い方
+    </div>
+    <div id="manual-tab-admin" class="import-tab" onclick="switchManualTab('admin')">
+      <span class="material-icons" style="vertical-align:middle; font-size:1.2rem;">settings_applications</span> 管理者向け設定ガイド
+    </div>
+    <div id="manual-tab-db" class="import-tab" onclick="switchManualTab('db')">
+      <span class="material-icons" style="vertical-align:middle; font-size:1.2rem;">developer_board</span> システム構成・ファイル定義
+    </div>
+  </div>
+
+  <div id="manual-content-user" style="display: block;">
+    <div class="card" style="border-top: 4px solid var(--primary); margin-bottom: 20px;">
+      <h3 style="margin-top: 0; color: var(--primary);"><span class="material-icons" style="vertical-align:middle;">dashboard</span> ダッシュボード と 詳細分析</h3>
+      <p style="color: #555; line-height: 1.6;">
+        <b>ダッシュボード：</b> 選択した期間（単月や四半期）、または年度累計（YTD）でのチーム全体の予実状況、進捗率、前年比をサマリ表示します。コスト構成比のグラフも確認できます。<br><br>
+        <b>詳細分析：</b> 勘定科目 ＞ チーム ＞ セグメント ＞ 取引先 の4階層でドリルダウン（掘り下げ）ができる分析画面です。差異の要因を特定し、末端の明細（セグメント・取引先）に対して<b>「入力」ボタンからポップアップで要因コメントを保存</b>することができます。
+      </p>
+    </div>
+    
+    <div class="card" style="border-top: 4px solid #1cc88a; margin-bottom: 20px;">
+      <h3 style="margin-top: 0; color: #1cc88a;"><span class="material-icons" style="vertical-align:middle;">assessment</span> 報告資料 (サマリ・抜粋)</h3>
+      <p style="color: #555; line-height: 1.6;">
+        <b>報告資料 (サマリ)：</b> 経営層やマネージャー向けに、各チームの成績を「天気アイコン」と合わせて直感的に表示します。コメント欄はなく、数値と前年比で全体感を把握するためのビューです。<br><br>
+        <b>報告資料 (抜粋)：</b> 「詳細分析」画面で<b>コメントが入力された明細だけ</b>を自動で抽出し、報告書フォーマットにまとめて表示します。
+      </p>
+    </div>
+
+    <div class="card" style="border-top: 4px solid #e74a3b; margin-bottom: 20px;">
+      <h3 style="margin-top: 0; color: #e74a3b;"><span class="material-icons" style="vertical-align:middle;">emoji_events</span> 創会用レポート ＆ 財務戦略会議用</h3>
+      <p style="color: #555; line-height: 1.6;">
+        <b>創会用レポート：</b> 計画精度の高いチームを称える「ランキング」や「ピッタリ賞」を表示します。画面いっぱいのレイアウトで取引先ごとのコメントが確認でき、<b>「チームをPDF出力」ボタンからA4横1枚の報告書を印刷</b>できます。天気アイコンの基準（％または金額）もここで設定可能です。<br><br>
+        <b>財務戦略会議用：</b> システム費や外注費など、事前に設定した「重要投資科目」の消化状況と、予算未消化の取引先（黄色アラート）を経営陣に報告するための専用レポートです。
+      </p>
+    </div>
+  </div>
+
+  <div id="manual-content-admin" style="display: none;">
+    <div class="card" style="border-top: 4px solid #f6c23e;">
+      <h3 style="margin-top: 0; color: #f6c23e;"><span class="material-icons" style="vertical-align:middle;">manage_accounts</span> 管理者向け機能一覧</h3>
+      <ul style="color: #555; line-height: 1.8; padding-left: 20px;">
+        <li><b>取込管理：</b> 指定したGoogle Driveのフォルダから、CSV形式の「予算データ」および「実績データ（速報・確定）」をGAS経由で一括インポートします。</li>
+        <li><b>実績データ 表示設定：</b> 月ごとに、ダッシュボード等で「速報値」を見るか「確定値」を見るかを切り替えます。</li>
+        <li><b>勘定科目 PL表示設定：</b> 基幹システムのマスタから取り込んだ科目のうち、このシステム（PL）で表示するものにチェックを入れて保存します。</li>
+        <li><b>チーム編成設定：</b> 未割り当てのセグメントをドラッグ＆ドロップして、報告用の「チーム（部署）」を作ります。</li>
+        <li><b>ユーザー権限設定：</b> このシステムにアクセスできるユーザーの追加・権限（Admin/User）・閲覧可能メニューを設定します。</li>
+        <li><b>初期年度・締め処理：</b> システム全体の基準年度を変更したり、月次を「ロック（確定）」してコメントの改ざんを防ぎます。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div id="manual-content-db" style="display: none;">
+    <div class="card" style="border-top: 4px solid #36b9cc;">
+      <h3 style="margin-top: 0; color: #36b9cc;"><span class="material-icons" style="vertical-align:middle;">folder_open</span> システムファイル・スクリプト構成</h3>
+      <p style="font-size: 0.85rem; color: #888;">本システムはGoogle Apps Script (GAS)をバックエンド、HTML/JavaScriptをフロントエンドとしたSPA（Single Page Application）構成です。</p>
+      
+      <h4 style="border-bottom:1px solid #eee; padding-bottom:5px; margin-top:20px;">📄 バックエンド (GAS: .gsファイル)</h4>
+      <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+        <thead style="background: #f8f9fa;">
+          <tr><th style="padding: 8px; text-align: left; border: 1px solid #ddd; width: 25%;">ファイル名</th><th style="padding: 8px; text-align: left; border: 1px solid #ddd;">役割・処理内容</th></tr>
+        </thead>
+        <tbody>
+          <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight:bold;">main.gs</td><td style="padding: 8px; border: 1px solid #ddd;">システム全体のエントリーポイント（doGetによる画面描画）。エラーやアクションのログをシートに書き込む機能も担う。</td></tr>
+          <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight:bold;">api_data.gs</td><td style="padding: 8px; border: 1px solid #ddd;">スプレッドシートからマスタデータ、予算・実績キャッシュデータ、コメントを抽出し、フロントエンドへJSON形式（globalPackage）で渡す。</td></tr>
+          <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight:bold;">api_import.gs</td><td style="padding: 8px; border: 1px solid #ddd;">DriveからCSVファイルを検索し、マスタと突合しながら実績・予算データを「DATA_CACHE_FYxx」シートに展開・上書きするバッチ処理。</td></tr>
+          <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight:bold;">api_settings.gs</td><td style="padding: 8px; border: 1px solid #ddd;">ユーザー、チーム、天気基準、財務レポート設定、コメント等の保存処理。スプレッドシートの各種保管シートへ直接書き込みを行う。</td></tr>
+        </tbody>
+      </table>
+
+      <h4 style="border-bottom:1px solid #eee; padding-bottom:5px; margin-top:25px;">🌐 フロントエンド (HTML/JSファイル)</h4>
+      <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+        <thead style="background: #f8f9fa;">
+          <tr><th style="padding: 8px; text-align: left; border: 1px solid #ddd; width: 25%;">ファイル名</th><th style="padding: 8px; text-align: left; border: 1px solid #ddd;">役割・処理内容</th></tr>
+        </thead>
+        <tbody>
+          <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight:bold;">index.html / css.html</td><td style="padding: 8px; border: 1px solid #ddd;">画面の大枠（サイドバー等）と、システム全体で共通利用されるCSSスタイル定義。</td></tr>
+          <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight:bold;">js_controller.html</td><td style="padding: 8px; border: 1px solid #ddd;">画面読み込み時の初期化処理、GASからのデータ受け取り、各画面の描画関数へのデータ分配を行う司令塔。</td></tr>
+          <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight:bold;">js_common.html</td><td style="padding: 8px; border: 1px solid #ddd;">金額のカンマ区切り（formatMoney）、パーセント計算、通信エラー処理など、全画面で使い回す共通関数群。</td></tr>
+          <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight:bold;">view_xxx / js_xxx (各画面)</td><td style="padding: 8px; border: 1px solid #ddd;">
+            <code>_dashboard</code>: ダッシュボードのUIとグラフ描画<br>
+            <code>_drilldown</code>: 詳細分析のドリルダウン（アコーディオン）とコメント入力ポップアップ<br>
+            <code>_report</code>: 報告資料（サマリ/抜粋）のUIと天気アイコン描画<br>
+            <code>_report_zaimu</code>: 財務戦略用レポートとCSV設定連携機能<br>
+            <code>_report_soukai</code>: 創会用レポートと<b>専用PDF横向き印刷機能</b><br>
+            <code>_settings系</code>: 各種設定画面のUIと保存アクション
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  function switchManualTab(mode) {
+    document.getElementById('manual-tab-user').classList.toggle('active', mode === 'user');
+    document.getElementById('manual-tab-admin').classList.toggle('active', mode === 'admin');
+    document.getElementById('manual-tab-db').classList.toggle('active', mode === 'db');
+    document.getElementById('manual-content-user').style.display = mode === 'user' ? 'block' : 'none';
+    document.getElementById('manual-content-admin').style.display = mode === 'admin' ? 'block' : 'none';
+    document.getElementById('manual-content-db').style.display = mode === 'db' ? 'block' : 'none';
+  }
+</script>

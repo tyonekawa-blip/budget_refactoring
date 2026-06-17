@@ -1,0 +1,23 @@
+<div id="view-import" class="view">
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #eee; padding-bottom:15px; margin-bottom:20px;">
+      <h3 style="margin:0; font-size:1.3rem; color:var(--primary); font-weight:bold;"><span class="material-icons" style="vertical-align:middle; font-size:1.5rem;">cloud_sync</span> 取込管理</h3>
+      <div class="form-group" style="flex-direction:row; align-items:center; gap:10px; margin:0;">
+        <label style="margin:0; font-size:1rem;">対象年度:</label>
+        <select id="importPageYear" onchange="loadImportStatus()" style="width:150px; font-weight:bold;"></select>
+      </div>
+    </div>
+
+    <div class="import-tabs">
+      <div id="tab-budget" class="import-tab active" onclick="switchImportTab('budget')"><span class="material-icons" style="vertical-align:middle; font-size:1.2rem;">fact_check</span> 予算データ</div>
+      <div id="tab-actual" class="import-tab" onclick="switchImportTab('actual')"><span class="material-icons" style="vertical-align:middle; font-size:1.2rem;">receipt_long</span> 実績データ</div>
+    </div>
+
+    <div style="background:#f8f9fa; padding:15px; border-radius:6px; margin-bottom:20px; font-size:0.95rem; color:#444; font-weight:bold;">
+      <span class="material-icons" style="vertical-align:middle; color:#f6c23e;">info</span>
+      <span id="import-desc-text">各月のカードから「予算データ」のインポートを行えます。</span>
+    </div>
+
+    <div id="import-grid" class="import-grid"></div>
+  </div>
+</div>

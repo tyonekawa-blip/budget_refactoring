@@ -1,0 +1,230 @@
+<script>
+  let currentDashTab = 'ytd'; // 'period' or 'ytd'
+
+  function switchDashTab(mode) {
+    currentDashTab = mode;
+    document.getElementById('dash-tab-period').classList.toggle('active', mode === 'period');
+    document.getElementById('dash-tab-ytd').classList.toggle('active', mode === 'ytd');
+    
+    document.getElementById('dash-label-budget').innerText = (mode === 'period') ? "予算 (期間)" : "予算 (累計)";
+    document.getElementById('dash-label-actual').innerText = (mode === 'period') ? "実績 (期間)" : "実績 (累計)";
+    document.getElementById('dash-label-progress').innerText = (mode === 'period') ? "差異率" : "達成率 (YTD)";
+    
+    if (globalPackage) reRenderCurrentData();
+  }
+
+  function renderDashboardSummary(monthlyData, unit, params) {
+    let totalBudget = 0, totalActual = 0, totalLastActual = 0;
+    
+    const targetMonths = (currentDashTab === 'period') ? params.reportTargetMonths : params.ytdMonths;
+
+    (targetMonths || []).forEach(m => { 
+      if(monthlyData[m]) { 
+        totalBudget += monthlyData[m].budget; 
+        totalActual += monthlyData[m].actual; 
+        totalLastActual += monthlyData[m].prevActual; 
+      } 
+    });
+
+    const segSel = document.getElementById('segment'); 
+    const segLabel = segSel && segSel.selectedIndex >= 0 ? segSel.options[segSel.selectedIndex].text : '';
+    const modeLabel = (currentDashTab === 'period') ? "【期間分析】" : "【累計分析】";
+    
+    const titleEl = document.getElementById('dash-summary-title');
+    if(titleEl) titleEl.innerText = `${modeLabel} ${segLabel} ${getPeriodLabel(params.period)} サマリ`;
+    
+    const bEl = document.getElementById('dash-budget'); if(bEl) bEl.innerText = formatMoney(totalBudget, unit);
+    const aEl = document.getElementById('dash-actual'); if(aEl) aEl.innerText = formatMoney(totalActual, unit);
+    
+    const yEl = document.getElementById('dash-ytd'); 
+    if(yEl) yEl.innerText = (currentDashTab === 'period') ? formatPercent(totalBudget, totalActual) : formatYTD(totalBudget, totalActual);
+    
+    const lyEl = document.getElementById('dash-lastyear');
+    if(lyEl) lyEl.innerText = totalLastActual === 0 ? "データなし" : formatMoney(totalLastActual, unit);
+    
+    const yoyEl = document.getElementById('dash-yoy');
+    if(yoyEl) { yoyEl.innerText = `YoY: ${formatYoY(totalActual, totalLastActual)}`; }
+  }
+
+  function renderMatrixTable(pkg, subjectMap, unit) {
+    const tbody = document.getElementById('matrix-tbody');
+    const tfoot = document.getElementById('matrix-tfoot');
+    if(!tbody || !tfoot) return; tbody.innerHTML = ''; tfoot.innerHTML = '';
+    
+    const teamStats = {};
+    (pkg.teamSettings || []).forEach(t => { 
+      teamStats[t.teamCd] = { name: t.teamName, order: t.order, budget: 0, actual: 0, prevActual: 0, annualBudget: 0, isHidden: t.isHidden }; 
+    });
+
+    (pkg.cacheData.annualBudget || []).forEach(row => { 
+      if (!subjectMap[row.acctName]) return; 
+      const t = teamStats[row.teamCd]; if (t && (row.type === '予算' || String(row.type).includes('予算'))) t.annualBudget += row.amount; 
+    });
+
+    const dataSource = (currentDashTab === 'period') ? pkg.cacheData.currentMonthAllSegments : pkg.cacheData.ytdAllSegments;
+
+    (dataSource || []).forEach(row => { 
+      if (!subjectMap[row.acctName]) return; 
+      const t = teamStats[row.teamCd]; if (!t) return; 
+      
+      // ★ 修正：前年実績が弾かれないよう、予算以外はすべて合算する
+      if (row.isPrev) { 
+        if (row.type !== '予算' && !String(row.type).includes('予算')) t.prevActual += row.amount; 
+      } else { 
+        if (row.type === '予算' || String(row.type).includes('予算')) t.budget += row.amount; 
+        else t.actual += row.amount; 
+      } 
+    });
+
+    let totalB = 0, totalA = 0, totalP = 0, totalAnnualB = 0;
+    
+    function formatMatrixDiff(amount, unit) { 
+      let num = Math.round(amount / unit);
+      if (num < 0) return '▲ ' + Math.abs(num).toLocaleString(); 
+      if (num > 0) return '＋ ' + num.toLocaleString(); 
+      return '0';
+    }
+
+    Object.values(teamStats).sort((a,b) => a.order - b.order).forEach(t => {
+      totalB += t.budget; totalA += t.actual; totalP += t.prevActual; totalAnnualB += t.annualBudget;
+      
+      if (t.isHidden) return;
+      if (t.budget === 0 && t.actual === 0 && t.prevActual === 0 && t.annualBudget === 0) return;
+      
+      const diff = t.actual - t.budget; const diffClass = diff > 0 ? 'val-negative' : 'val-positive';
+      const progressPct = t.annualBudget !== 0 ? ((t.actual / t.annualBudget) * 100).toFixed(1) + '%' : '-';
+      const scoreLabel = (currentDashTab === 'period') ? formatPercent(t.budget, t.actual) : formatYTD(t.budget, t.actual);
+
+      const tr = document.createElement('tr'); tr.className = 'matrix-row';
+      tr.innerHTML = `
+        <td><span class="material-icons" style="font-size:1.1rem; vertical-align:text-bottom; color:#888; margin-right:5px;">groups</span>${t.name}</td>
+        <td style="text-align: right;">${formatMoney(t.budget, unit)}</td>
+        <td style="text-align: right;">${formatMoney(t.actual, unit)}</td>
+        <td style="text-align: right;" class="${diffClass}">${formatMatrixDiff(diff, unit)}</td>
+        <td style="text-align: right; font-weight:bold; color:#1a73e8;">${scoreLabel}</td>
+        <td style="text-align: right; font-weight:bold; color:#e74a3b;">${progressPct}</td>
+        <td style="text-align: right; color:#888;">${formatMoney(t.prevActual, unit)}</td>
+        <td style="text-align: right; color:#888;">${formatYoY(t.actual, t.prevActual)}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    if (totalB === 0 && totalA === 0 && totalP === 0 && totalAnnualB === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px; color:#888;">データがありません</td></tr>';
+      renderDashboardCharts({}, unit); return;
+    }
+    
+    const totalDiff = totalA - totalB; const totalDiffClass = totalDiff > 0 ? 'val-negative' : 'val-positive';
+    const totalProgressPct = totalAnnualB !== 0 ? ((totalA / totalAnnualB) * 100).toFixed(1) + '%' : '-';
+    const totalScoreLabel = (currentDashTab === 'period') ? formatPercent(totalB, totalA) : formatYTD(totalB, totalA);
+
+    const tfRow = document.createElement('tr');
+    tfRow.innerHTML = `
+      <td style="border-top:2px solid #ccc; padding: 12px 10px;"><strong>全社合計</strong></td>
+      <td style="text-align: right; border-top:2px solid #ccc;"><strong>${formatMoney(totalB, unit)}</strong></td>
+      <td style="text-align: right; border-top:2px solid #ccc;"><strong>${formatMoney(totalA, unit)}</strong></td>
+      <td style="text-align: right; border-top:2px solid #ccc;" class="${totalDiffClass}"><strong>${formatMatrixDiff(totalDiff, unit)}</strong></td>
+      <td style="text-align: right; border-top:2px solid #ccc; color:#1a73e8;"><strong>${totalScoreLabel}</strong></td>
+      <td style="text-align: right; border-top:2px solid #ccc; color:#e74a3b;"><strong>${totalProgressPct}</strong></td>
+      <td style="text-align: right; color:#888; border-top:2px solid #ccc;"><strong>${formatMoney(totalP, unit)}</strong></td>
+      <td style="text-align: right; color:#888; border-top:2px solid #ccc;"><strong>${formatYoY(totalA, totalP)}</strong></td>
+    `;
+    tfoot.appendChild(tfRow);
+
+    renderDashboardCharts(teamStats, unit);
+  }
+
+  function renderDashboardCharts(teamStats, unit) {
+    const budgetCtx = document.getElementById('budgetChart'); 
+    const actualCtx = document.getElementById('actualChart');
+    if (!budgetCtx || !actualCtx) return;
+
+    if (typeof Chart !== 'undefined') {
+      const existingB = Chart.getChart('budgetChart');
+      if (existingB) existingB.destroy();
+      
+      const existingA = Chart.getChart('actualChart');
+      if (existingA) existingA.destroy();
+    } else {
+      console.warn("Chart.js is not loaded yet.");
+      return;
+    }
+
+    const labels = []; 
+    const budgetData = [];       
+    const actualData = [];       
+    const budgetChartData = [];  
+    const actualChartData = [];  
+    const bgColors = ['#FFB3BA', '#FFDFBA', '#FFFFBA', '#BAFFC9', '#BAE1FF', '#E8CCFF', '#FBE4FF', '#F3FFE3', '#CFFFF0', '#FFC4D9', '#FFE5B4', '#D4F0F0'];
+    
+    let totalBudget = 0; let totalActual = 0;
+    let otherBudget = 0; let otherActual = 0;
+
+    Object.values(teamStats).sort((a,b) => a.order - b.order).forEach(t => { 
+      if (t.isHidden) {
+        otherBudget += t.budget; otherActual += t.actual;
+        return;
+      }
+      if (t.budget === 0 && t.actual === 0) return; 
+      labels.push(t.name); 
+      budgetData.push(t.budget); 
+      actualData.push(t.actual); 
+      
+      budgetChartData.push(Math.max(0, t.budget));
+      actualChartData.push(Math.max(0, t.actual));
+
+      totalBudget += t.budget; totalActual += t.actual; 
+    });
+
+    if (otherBudget !== 0 || otherActual !== 0) {
+      labels.push("その他 (非表示チーム)");
+      budgetData.push(otherBudget);
+      actualData.push(otherActual);
+      budgetChartData.push(Math.max(0, otherBudget));
+      actualChartData.push(Math.max(0, otherActual));
+      totalBudget += otherBudget; totalActual += otherActual;
+    }
+    
+    if (labels.length === 0) { 
+      document.getElementById('budgetLegend').innerHTML = '<div style="text-align:center; color:#888;">データなし</div>';
+      document.getElementById('actualLegend').innerHTML = '<div style="text-align:center; color:#888;">データなし</div>'; 
+      return; 
+    }
+    
+    const chartOpts = { 
+      responsive: true, maintainAspectRatio: false, cutout: '50%', 
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(c){ return ' ' + formatMoney(c.raw, unit); } } } } 
+    };
+    
+    new Chart(budgetCtx, { 
+      type: 'doughnut', 
+      data: { labels: labels, datasets: [{ data: budgetChartData, backgroundColor: bgColors, borderWidth: 2, borderColor: '#ffffff', hoverOffset: 10 }] }, 
+      options: chartOpts 
+    });
+    
+    new Chart(actualCtx, { 
+      type: 'doughnut', 
+      data: { labels: labels, datasets: [{ data: actualChartData, backgroundColor: bgColors, borderWidth: 2, borderColor: '#ffffff', hoverOffset: 10 }] }, 
+      options: chartOpts 
+    });
+    
+    function createLegend(trueDataArray, chartDataArray, total) {
+      let html = '<table style="width:100%; border-collapse:collapse; font-size:0.85rem;"><thead><tr style="border-bottom:2px solid #ccc; color:#555;"><th style="text-align:left; padding-bottom:5px;">チーム</th><th style="text-align:right; padding-bottom:5px;">金額</th><th style="text-align:right; padding-bottom:5px; width:50px;">構成比</th></tr></thead><tbody>';
+      
+      const chartTotal = chartDataArray.reduce((sum, val) => sum + val, 0);
+
+      labels.forEach((l, i) => {
+        const trueVal = trueDataArray[i]; 
+        const chartVal = chartDataArray[i];
+        const pct = chartTotal > 0 ? ((chartVal / chartTotal) * 100).toFixed(1) : 0;
+        
+        html += `<tr style="border-bottom:1px solid #eee;"><td style="padding:6px 0;"><span style="display:inline-block; width:12px; height:12px; background:${bgColors[i%bgColors.length]}; margin-right:8px; border-radius:3px; vertical-align:middle;"></span>${l}</td><td style="text-align:right; font-weight:bold; color:#555;">${formatMoney(trueVal, unit)}</td><td style="text-align:right; font-weight:bold; color:#1a73e8;">${pct}%</td></tr>`;
+      });
+      html += `</tbody><tfoot><tr style="border-top:2px solid #ccc; font-weight:bold;"><td style="padding:8px 0; color:#333;">合計</td><td style="text-align:right; color:#333;">${formatMoney(total, unit)}</td><td style="text-align:right; color:#1a73e8;">100.0%</td></tr></tfoot></table>`;
+      return html;
+    }
+    
+    document.getElementById('budgetLegend').innerHTML = createLegend(budgetData, budgetChartData, totalBudget);
+    document.getElementById('actualLegend').innerHTML = createLegend(actualData, actualChartData, totalActual);
+  }
+</script>

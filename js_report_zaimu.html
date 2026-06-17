@@ -1,0 +1,276 @@
+<script>
+  // ==========================================
+  // 財務戦略会議用レポート 画面用ロジック
+  // ==========================================
+
+  function switchZaimuTab(tab) {
+    document.getElementById('zaimu-tab-report').classList.toggle('active', tab === 'report');
+    document.getElementById('zaimu-tab-settings').classList.toggle('active', tab === 'settings');
+    document.getElementById('zaimu-content-report').style.display = tab === 'report' ? 'block' : 'none';
+    document.getElementById('zaimu-content-settings').style.display = tab === 'settings' ? 'block' : 'none';
+    
+    if (tab === 'settings' && globalPackage) {
+      populateZaimuSettingsUI();
+    }
+  }
+
+  function filterZaimuSubjects() {
+    const keyword = document.getElementById('zaimu-subject-search').value.toLowerCase();
+    const labels = document.querySelectorAll('.zaimu-subj-label');
+    labels.forEach(label => {
+      const name = label.querySelector('.zaimu-subj-name').innerText.toLowerCase();
+      if (name.includes(keyword)) {
+        label.style.display = 'flex';
+      } else {
+        label.style.display = 'none';
+      }
+    });
+  }
+
+  function populateZaimuSettingsUI() {
+    const container = document.getElementById('zaimu-subject-checkboxes');
+    if (!container) return;
+    container.innerHTML = '';
+    
+    // ★ 改善：PL表示設定(subjectSettings)がtrueの科目だけに絞り込む
+    let subjects = [];
+    const plSettings = globalPackage.subjectSettings || {};
+
+    if (globalPackage.subjects) {
+      subjects = globalPackage.subjects.map(s => s.name).filter(name => plSettings[name] !== false).sort();
+    } else if (globalPackage.masters && globalPackage.masters.subject) {
+      subjects = globalPackage.masters.subject.map(row => row[2]).filter(name => name && plSettings[name] !== false).sort();
+    }
+    
+    const zSettings = globalPackage.zaimuSettings || { subjects: [], diffFrom: 0, diffTo: 9999999999 };
+    
+    // 選択済み科目を判定
+    const savedSubjects = Array.isArray(zSettings.subjects) ? zSettings.subjects : Object.keys(zSettings.subjects || {}).filter(k => zSettings.subjects[k]);
+    
+    subjects.forEach(sub => {
+      const isChecked = savedSubjects.includes(sub) ? 'checked' : '';
+      container.innerHTML += `
+        <label class="zaimu-subj-label" style="display:flex; align-items:center; gap:5px; font-size:0.9rem; cursor:pointer; width:calc(33% - 10px);">
+          <input type="checkbox" class="zaimu-subj-check" value="${sub}" ${isChecked}>
+          <span class="zaimu-subj-name">${sub}</span>
+        </label>
+      `;
+    });
+    
+    document.getElementById('zaimu-diff-from').value = zSettings.diffFrom !== undefined ? zSettings.diffFrom : 0;
+    document.getElementById('zaimu-diff-to').value = zSettings.diffTo !== undefined ? zSettings.diffTo : 9999999999;
+  }
+
+  function saveZaimuSettingsBtn() {
+    if(!confirm('財務レポートの設定を保存しますか？')) return;
+    
+    const checks = document.querySelectorAll('.zaimu-subj-check');
+    const selectedSubjects = Array.from(checks).filter(c => c.checked).map(c => c.value);
+    
+    const diffFrom = Number(document.getElementById('zaimu-diff-from').value) || 0;
+    const diffTo = Number(document.getElementById('zaimu-diff-to').value) || 9999999999;
+
+    showLoading('保存中...');
+    
+    google.script.run.withSuccessHandler(res => {
+      if (res && res.error) {
+         alert('保存エラー: ' + res.error);
+         hideLoading();
+         return;
+      }
+      alert('保存しました！');
+      if(globalPackage) {
+        globalPackage.zaimuSettings = { subjects: selectedSubjects, diffFrom: diffFrom, diffTo: diffTo };
+        renderReportZaimu(globalPackage, globalPackage.subjectMapCache, parseInt(document.getElementById('displayUnit').value));
+        switchZaimuTab('report');
+      }
+      hideLoading();
+    }).withFailureHandler(e => handleGenericError(e, 'saveZaimuSettingsConfig')).saveZaimuSettingsConfig(selectedSubjects, diffFrom, diffTo);
+  }
+
+  // CSV エクスポート処理
+  function exportZaimuCsvBtn() {
+    showLoading('ダウンロード準備中...');
+    google.script.run.withSuccessHandler(csvString => {
+      hideLoading();
+      if(!csvString) {
+        alert("エクスポートするデータがありませんでした。");
+        return;
+      }
+      const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'zaimu_settings.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }).withFailureHandler(e => handleGenericError(e, 'exportZaimuSettingsCsv')).exportZaimuSettingsCsv();
+  }
+
+  // CSV インポート処理
+  function importZaimuCsvBtn() {
+    const fileInput = document.getElementById('zaimu-csv-file');
+    const file = fileInput.files[0];
+    if (!file) {
+      alert('CSVファイルを選択してください。');
+      return;
+    }
+    if (!confirm('選択したCSVファイルをアップロードし、設定を上書きしますか？')) return;
+
+    showLoading('アップロード中...');
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const content = e.target.result;
+      google.script.run.withSuccessHandler(res => {
+        hideLoading();
+        if(res && res.error) {
+          alert('エラーが発生しました: ' + res.error);
+        } else {
+          alert('CSVのインポートが完了しました。\\n最新のデータを反映するため、画面をリロードしてください。');
+          fileInput.value = ''; 
+        }
+      }).withFailureHandler(e => handleGenericError(e, 'importZaimuSettingsCsv')).importZaimuSettingsCsv(content);
+    };
+    reader.readAsText(file);
+  }
+
+  function renderReportZaimu(pkg, subjectMap, unit) {
+    const investContainer = document.getElementById('zaimu-investment-container');
+    const partnerContainer = document.getElementById('zaimu-partner-container');
+    
+    if(!investContainer || !partnerContainer) return;
+
+    pkg.subjectMapCache = subjectMap; 
+    
+    const zSettings = pkg.zaimuSettings || { subjects: [], diffFrom: 0, diffTo: 9999999999 };
+    const targetSubjects = Array.isArray(zSettings.subjects) ? zSettings.subjects : Object.keys(zSettings.subjects || {}).filter(k => zSettings.subjects[k]);
+    
+    investContainer.innerHTML = ''; 
+    partnerContainer.innerHTML = '';
+
+    const isInvestmentAcct = (acctName) => {
+      return targetSubjects.includes(acctName);
+    };
+
+    const zaimuStats = { accts: {}, partners: {} };
+
+    const dataSource = (typeof currentReportTab !== 'undefined' && currentReportTab === 'period') ? pkg.cacheData.currentMonthAllSegments : pkg.cacheData.ytdAllSegments;
+
+    (dataSource || []).forEach(row => {
+      if (row.isPrev || !subjectMap[row.acctName]) return;
+      if (!isInvestmentAcct(row.acctName)) return;
+
+      const isB = row.type === '予算';
+
+      if (!zaimuStats.accts[row.acctName]) zaimuStats.accts[row.acctName] = { budget: 0, actual: 0 };
+      zaimuStats.accts[row.acctName][isB ? 'budget' : 'actual'] += row.amount;
+
+      let pName = row.partnerName || "取引先設定なし";
+      if (!zaimuStats.partners[pName]) {
+        zaimuStats.partners[pName] = { name: pName, budget: 0, actual: 0, teams: {} };
+      }
+      
+      const p = zaimuStats.partners[pName];
+      p[isB ? 'budget' : 'actual'] += row.amount;
+      
+      let tName = row.teamName || row.teamCd;
+      const tObj = pkg.teamSettings.find(t => t.teamCd === row.teamCd);
+      if (tObj && tObj.isHidden) { tName = 'その他（非表示チーム合算）'; }
+      
+      const teamAcctKey = `${tName} ＞ ${row.acctName}`;
+      if (!p.teams[teamAcctKey]) p.teams[teamAcctKey] = { budget: 0, actual: 0 };
+      p.teams[teamAcctKey][isB ? 'budget' : 'actual'] += row.amount;
+    });
+
+    let invHtml = '<table class="data-table"><thead><tr><th>重点科目 (設定済み)</th><th style="text-align:right;">予算</th><th style="text-align:right;">実績</th><th style="text-align:right;">差異額</th><th style="text-align:right;">消化率</th></tr></thead><tbody>';
+    let hasInv = false;
+    
+    Object.keys(zaimuStats.accts).forEach(acct => {
+      const a = zaimuStats.accts[acct];
+      if(a.budget === 0 && a.actual === 0) return;
+      hasInv = true;
+      const diff = a.actual - a.budget;
+      const diffClass = diff > 0 ? 'val-negative' : 'val-positive';
+      
+      invHtml += `
+        <tr>
+          <td style="font-weight:bold;">${acct}</td>
+          <td style="text-align:right;">${formatMoney(a.budget, unit)}</td>
+          <td style="text-align:right;">${formatMoney(a.actual, unit)}</td>
+          <td style="text-align:right;" class="${diffClass}">${formatMoney(diff, unit)}</td>
+          <td style="text-align:right; font-weight:bold;" class="${diffClass}">${formatYTD(a.budget, a.actual)}</td>
+        </tr>`;
+    });
+    invHtml += '</tbody></table>';
+    
+    if(!hasInv) invHtml = '<div style="color:#888; padding:20px; text-align:center; background:#f8f9fa; border-radius:6px;">重点投資科目（チェックを入れた科目）のデータがありません。</div>';
+    investContainer.innerHTML = invHtml;
+
+    let partnerHtml = '';
+    
+    const pArray = Object.values(zaimuStats.partners).sort((a, b) => {
+      const aUnused = (a.budget > 0 && a.actual === 0) ? 1 : 0;
+      const bUnused = (b.budget > 0 && b.actual === 0) ? 1 : 0;
+      if (aUnused !== bUnused) return bUnused - aUnused;
+      return b.actual - a.actual; 
+    });
+
+    pArray.forEach(p => {
+      if (p.budget === 0 && p.actual === 0) return;
+      
+      const pDiff = p.actual - p.budget;
+      const pdClass = pDiff > 0 ? 'val-negative' : 'val-positive';
+      
+      // Diffの範囲でフィルタリング
+      const diffAbs = Math.abs(pDiff);
+      if (diffAbs < zSettings.diffFrom || diffAbs > zSettings.diffTo) return;
+      
+      const isUnused = (p.budget > 0 && p.actual === 0);
+      const cardBg = isUnused ? '#fffaf0' : '#fff';
+      const cardBorder = isUnused ? 'border-left:5px solid #f6c23e;' : 'border-left:5px solid #8e44ad;';
+      const alertBadge = isUnused ? `<span style="background:#f6c23e; color:#333; font-size:0.75rem; padding:3px 8px; border-radius:4px; font-weight:bold; margin-left:10px;"><span class="material-icons" style="font-size:0.9rem; vertical-align:text-bottom;">warning</span> 未稼働 (実績なし)</span>` : '';
+
+      let tDetailsHtml = '';
+      Object.keys(p.teams).forEach(tKey => {
+        const ta = p.teams[tKey];
+        if(ta.budget === 0 && ta.actual === 0) return;
+        tDetailsHtml += `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px dashed #eee;">
+            <div style="font-size:0.85rem; color:#555; font-weight:bold;"><span class="material-icons" style="font-size:1rem; vertical-align:text-bottom; color:#ccc; margin-right:4px;">subdirectory_arrow_right</span>${tKey}</div>
+            <div style="font-size:0.85rem;">
+              <span style="color:#888; margin-right:10px;">予: ${formatMoney(ta.budget, unit)}</span>
+              <span style="font-weight:bold;">実: ${formatMoney(ta.actual, unit)}</span>
+            </div>
+          </div>
+        `;
+      });
+
+      partnerHtml += `
+        <div style="background:${cardBg}; border:1px solid #dce1e7; ${cardBorder} border-radius:6px; padding:15px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <div style="font-weight:bold; font-size:1.1rem; color:#333; display:flex; align-items:center;">
+              <span class="material-icons" style="color:#adb5bd; margin-right:8px;">storefront</span> ${p.name} ${alertBadge}
+            </div>
+            <div style="text-align:right;">
+              <div style="display:flex; gap:15px; font-size:0.85rem; color:#666; margin-bottom:2px;">
+                <span>予算: ${formatMoney(p.budget, unit)}</span>
+                <span style="font-weight:bold; color:#333;">実績: ${formatMoney(p.actual, unit)}</span>
+              </div>
+              <div class="${pdClass}" style="font-size:0.9rem; font-weight:bold;">
+                差異: ${formatMoney(pDiff, unit)} <span style="font-size:0.8rem;">(消化率: ${formatYTD(p.budget, p.actual)})</span>
+              </div>
+            </div>
+          </div>
+          <div style="background:#fcfdfd; padding:10px; border-radius:4px; border:1px solid #f1f4f8;">
+            <div style="font-size:0.75rem; color:#888; font-weight:bold; margin-bottom:5px;">利用チームおよび対象科目内訳:</div>
+            ${tDetailsHtml}
+          </div>
+        </div>
+      `;
+    });
+    
+    partnerContainer.innerHTML = partnerHtml || '<div style="color:#888; text-align:center; padding:20px;">表示範囲の条件に一致する取引先データがありません。</div>';
+  }
+</script>

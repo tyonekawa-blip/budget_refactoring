@@ -1,0 +1,69 @@
+<div id="view-dashboard" class="view active">
+  <div class="import-tabs" style="margin-bottom: 20px;">
+    <div id="dash-tab-period" class="import-tab" onclick="switchDashTab('period')">
+      <span class="material-icons" style="vertical-align:middle; font-size:1.2rem;">event</span> 選択期間 (単月/四半期)
+    </div>
+    <div id="dash-tab-ytd" class="import-tab active" onclick="switchDashTab('ytd')">
+      <span class="material-icons" style="vertical-align:middle; font-size:1.2rem;">history</span> 年度累計 (YTD)
+    </div>
+  </div>
+
+  <h3 id="dash-summary-title" style="margin-bottom: 15px; color: #3f4254;">サマリ</h3>
+  <div class="summary-cards">
+    <div class="summary-card">
+      <div class="summary-title" id="dash-label-budget">予算</div>
+      <div class="summary-value" id="dash-budget">0</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-title" id="dash-label-actual">実績</div>
+      <div class="summary-value" id="dash-actual">0</div>
+    </div>
+    <div class="summary-card" style="border-left-color: #36b9cc;">
+      <div class="summary-title" id="dash-label-progress">進捗率</div>
+      <div class="summary-value" id="dash-ytd" style="color: #36b9cc;">0.0%</div>
+    </div>
+    <div class="summary-card" style="border-left-color: #f6c23e;">
+      <div class="summary-title">前年同期 実績</div>
+      <div class="summary-value" id="dash-lastyear" style="color: #666;">0</div>
+      <div style="font-size: 0.85rem; color: #888; margin-top: 5px; font-weight: bold;" id="dash-yoy">YoY: -</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 class="card-title" id="dash-matrix-title">チーム別 予実マトリクス表</h3>
+    <div style="overflow-x: auto;">
+      <table class="data-table matrix-table">
+        <thead id="matrix-thead">
+          <tr>
+            <th>チーム</th>
+            <th style="text-align: right;">予算</th>
+            <th style="text-align: right;">実績</th>
+            <th style="text-align: right;">差異額</th>
+            <th style="text-align: right;">差異率</th>
+            <th style="text-align: right; color: #e74a3b;">進捗率</th>
+            <th style="text-align: right;">前年実績</th>
+            <th style="text-align: right;">前年比</th>
+          </tr>
+        </thead>
+        <tbody id="matrix-tbody"></tbody>
+        <tfoot id="matrix-tfoot"></tfoot>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top: 20px;">
+    <h3 class="card-title">チーム別 コスト構成比</h3>
+    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+      <div style="flex: 1; min-width: 300px; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 20px;">
+        <h4 style="text-align: center; color: #555; margin-top: 0;">予算 構成比</h4>
+        <div style="position: relative; height: 220px;"><canvas id="budgetChart"></canvas></div>
+        <div id="budgetLegend" style="margin-top: 20px;"></div>
+      </div>
+      <div style="flex: 1; min-width: 300px; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 20px;">
+        <h4 style="text-align: center; color: #555; margin-top: 0;">実績 構成比</h4>
+        <div style="position: relative; height: 220px;"><canvas id="actualChart"></canvas></div>
+        <div id="actualLegend" style="margin-top: 20px;"></div>
+      </div>
+    </div>
+  </div>
+</div>

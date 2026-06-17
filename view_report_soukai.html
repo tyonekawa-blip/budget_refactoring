@@ -1,0 +1,114 @@
+<div id="view-report_soukai" class="view">
+  <div class="card" style="border-top: 4px solid #e74a3b;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+      <h3 class="card-title" style="color: #e74a3b; border: none; margin: 0;">
+        <span class="material-icons" style="vertical-align:middle; font-size:1.6rem; margin-right:5px;">emoji_events</span> 創会用レポート
+      </h3>
+      <button class="btn print-btn" style="background:#fff; color:#e74a3b; border: 1px solid #e74a3b;" onclick="window.print()">
+        <span class="material-icons">print</span> 画面全体を印刷
+      </button>
+    </div>
+
+    <div class="import-tabs" style="margin-bottom: 15px;">
+      <div id="sokai-tab-report" class="import-tab active" onclick="switchSokaiTab('report')">
+        <span class="material-icons" style="vertical-align:middle; font-size:1.2rem;">assessment</span> レポート表示
+      </div>
+      <div id="sokai-tab-settings" class="import-tab" onclick="switchSokaiTab('settings')">
+        <span class="material-icons" style="vertical-align:middle; font-size:1.2rem;">wb_sunny</span> 天気・判定設定
+      </div>
+    </div>
+
+    <div id="sokai-content-report" style="display:block;">
+       <h4 style="border-bottom: 2px solid #fdeceb; padding-bottom: 5px; color: #333; margin-top:0;">🏆 計画精度 F1ランキング (TOP 3)</h4>
+       <div id="sokai-ranking-container" style="margin-bottom: 30px;"></div>
+
+       <h4 style="border-bottom: 2px solid #fdeceb; padding-bottom: 5px; color: #333;">🎯 科目別 ピッタリ賞</h4>
+       <div id="sokai-perfect-container" style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:30px;"></div>
+       
+       <h4 style="border-bottom: 2px solid #fdeceb; padding-bottom: 5px; color: #333; margin-top:20px;">📊 チーム別 予実差異・構成比分析</h4>
+       <div id="sokai-team-analysis"></div>
+    </div>
+
+    <div id="sokai-content-settings" style="display:none; background:#f8f9fa; padding:20px; border-radius:8px; border:1px solid #eee;">
+       <h4 style="margin-top: 0; color: #333;">差異に応じた「天気」の設定</h4>
+       <p style="font-size:0.85rem; color:#666; margin-bottom:20px;">差異率（%）または 差異額（円）のどちらかを満たしていれば、その天気が適用されます。</p>
+       
+       <div style="display:flex; flex-direction:column; gap:15px; max-width: 600px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; background:#fff; padding:10px 15px; border-radius:6px; border:1px solid #ddd;">
+             <span style="font-weight:bold; color:#555; width: 130px;"><span class="material-icons" style="color:#f6c23e; vertical-align:middle; margin-right:5px;">wb_sunny</span> 晴れ (上限)</span>
+             <div style="display:flex; align-items:center; gap:10px;">
+               <div><input type="number" id="weather-sunny" class="form-control" style="width:80px; text-align:right;"> % 以内</div>
+               <span style="color:#888; font-size:0.85rem;">または</span>
+               <div><input type="number" id="weather-sunny-amt" class="form-control" style="width:120px; text-align:right;"> 円 以内</div>
+             </div>
+          </div>
+          <div style="display:flex; align-items:center; justify-content:space-between; background:#fff; padding:10px 15px; border-radius:6px; border:1px solid #ddd;">
+             <span style="font-weight:bold; color:#555; width: 130px;"><span class="material-icons" style="color:#858796; vertical-align:middle; margin-right:5px;">cloud</span> 曇り (上限)</span>
+             <div style="display:flex; align-items:center; gap:10px;">
+               <div><input type="number" id="weather-cloudy" class="form-control" style="width:80px; text-align:right;"> % 以内</div>
+               <span style="color:#888; font-size:0.85rem;">または</span>
+               <div><input type="number" id="weather-cloudy-amt" class="form-control" style="width:120px; text-align:right;"> 円 以内</div>
+             </div>
+          </div>
+          <div style="display:flex; align-items:center; justify-content:space-between; background:#fff; padding:10px 15px; border-radius:6px; border:1px solid #ddd;">
+             <span style="font-weight:bold; color:#555; width: 130px;"><span class="material-icons" style="color:#36b9cc; vertical-align:middle; margin-right:5px;">umbrella</span> 雨 (上限)</span>
+             <div style="display:flex; align-items:center; gap:10px;">
+               <div><input type="number" id="weather-rainy" class="form-control" style="width:80px; text-align:right;"> % 以内</div>
+               <span style="color:#888; font-size:0.85rem;">または</span>
+               <div><input type="number" id="weather-rainy-amt" class="form-control" style="width:120px; text-align:right;"> 円 以内</div>
+             </div>
+          </div>
+          
+          <h4 style="margin-top: 20px; color: #333; border-top: 1px solid #ddd; padding-top: 20px;">コメント文字数 上限設定</h4>
+          <div style="display:flex; align-items:center; justify-content:space-between; background:#fff; padding:10px 15px; border-radius:6px; border:1px solid #ddd;">
+             <span style="font-weight:bold; color:#555; width: 180px;"><span class="material-icons" style="color:var(--primary); vertical-align:middle; margin-right:5px;">text_fields</span> 取引先コメント上限</span>
+             <div style="display:flex; align-items:center; gap:10px;">
+               <input type="number" id="soukai-comment-max" class="form-control" style="width:100px; text-align:right;" value="40"> 文字まで
+             </div>
+          </div>
+       </div>
+       <button class="btn print-btn" style="background:#e74a3b; margin-top:25px; max-width: 600px; width:100%; font-size:1.05rem; padding:10px;" onclick="saveWeatherSettingsBtn()">
+         <span class="material-icons" style="vertical-align:middle;">save</span> 設定を保存して更新
+       </button>
+    </div>
+  </div>
+</div>
+
+<div id="soukai-modal-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:9999; align-items:center; justify-content:center;">
+  <div style="background:#fff; width: 950px; max-width: 95%; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); overflow:hidden; display:flex; flex-direction:column;">
+    <div style="background:var(--primary); color:#fff; padding: 15px 20px; font-weight:900; font-size:1.2rem; display:flex; justify-content:space-between; align-items:center;">
+      <span><span class="material-icons" style="vertical-align:middle; margin-right:5px;">edit_note</span> 報告用コメント編集</span>
+      <span class="material-icons" style="cursor:pointer;" onclick="closeSoukaiCommentModal()">close</span>
+    </div>
+    
+    <div style="padding: 25px; flex: 1; overflow-y:auto; max-height: 80vh;">
+      <div id="soukai-modal-title" style="font-size:1.2rem; font-weight:900; color:#2c3e50; margin-bottom:15px; border-bottom:2px dashed #eee; padding-bottom:10px;"></div>
+      
+      <div style="display: flex; gap: 25px; flex-wrap: wrap;">
+        <div style="flex: 1; min-width: 300px; display:flex; flex-direction:column;">
+          <div style="margin-bottom: 20px;">
+            <label style="font-size:0.85rem; color:#7f8c8d; font-weight:bold; display:block; margin-bottom:5px;">👇 過去の履歴（選択するとテキストエリアに<span style="color:#e74a3b;">追記</span>されます）</label>
+            <select id="soukai-modal-history" class="form-control" style="width:100%; background:#f8f9fa; border:1px solid #ccc; font-size:0.95rem; cursor:pointer;" onchange="copyHistoryToTextarea()">
+               <option value="">過去の履歴を参照...</option>
+            </select>
+          </div>
+          <label style="font-size:0.85rem; color:#7f8c8d; font-weight:bold; display:block; margin-bottom:5px;">📝 創会レポート用コメント（直接編集できます）</label>
+          <textarea id="soukai-modal-textarea" style="width:100%; flex:1; min-height:150px; padding:15px; border:2px solid #b6d4fe; border-radius:8px; font-size:1.05rem; resize:none;" placeholder="報告事項を入力してください"></textarea>
+          <div style="text-align:right; font-size:0.85rem; color:#888; margin-top:5px;">残り文字数: <span id="soukai-modal-char-count" style="font-weight:bold; color:var(--primary);"></span></div>
+          
+          <input type="hidden" id="soukai-modal-period">
+          <input type="hidden" id="soukai-modal-key">
+        </div>
+        
+        <div style="flex: 1; min-width: 350px; background:#f4f6f9; border-radius:10px; padding:20px; border:1px solid #dce1e7;">
+          <div id="soukai-modal-monthly-table"></div>
+        </div>
+      </div>
+    </div>
+    
+    <div style="padding: 15px 25px; background:#f8f9fa; border-top:1px solid #eee; display:flex; justify-content:flex-end; gap:10px;">
+      <button class="btn" style="background:#fff; color:#555; border:1px solid #ccc; padding:8px 20px; font-weight:bold;" onclick="closeSoukaiCommentModal()">キャンセル</button>
+      <button class="btn" style="background:var(--primary); padding:8px 30px; font-weight:bold; font-size:1.05rem;" id="soukai-modal-save-btn" onclick="saveSoukaiComment()">保存する</button>
+    </div>
+  </div>
+</div>

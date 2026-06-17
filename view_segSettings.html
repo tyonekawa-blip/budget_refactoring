@@ -1,0 +1,23 @@
+<div id="view-segSettings" class="view">
+  <div class="card">
+    <h3 class="card-title">報告部署（チーム）編成設定<button class="btn" style="background:#1cc88a; font-size: 0.9rem;" onclick="saveTeamSettingsBtn()">設定を保存</button></h3>
+    <p style="font-size:0.85rem; color:#666;">セグメントをドラッグ＆ドロップしてチームに編成します。設定が終わったら必ず右上の「設定を保存」を押してください。</p>
+    <div style="display: flex; gap: 20px; align-items: flex-start; margin-top:15px;">
+      
+      <div style="flex: 1; border: 1px solid var(--border); border-radius: 8px; padding: 15px; background: #fff;">
+        <h4 style="margin-top: 0; color: #e74a3b; border-bottom: 2px solid #e74a3b; padding-bottom: 5px;">未割り当て（ここからドラッグ）</h4>
+        
+        <div id="unassigned-drop-zone" style="min-height: 200px; max-height: 400px; overflow-y: auto; background: #fbfcfd; border: 1px dashed #ccc; padding: 10px; border-radius: 6px; transition: 0.2s;">
+          <div id="unassigned-seg-container"></div>
+        </div>
+        
+        <button class="btn" style="width: 100%; margin-top: 15px; background:#f6c23e; color:#333;" onclick="createNewTeamBtn()"><span class="material-icons" style="font-size:1rem; vertical-align:middle;">add</span> 空のチームを新規作成</button>
+      </div>
+      
+      <div style="flex: 2; border: 1px solid var(--border); border-radius: 8px; padding: 15px; background: #f8f9fa;">
+        <h4 style="margin-top: 0; color: var(--primary); border-bottom: 2px solid var(--primary); padding-bottom: 5px;">編成済みのチーム（ここにドロップ）</h4>
+        <div id="team-list-container" style="display: flex; flex-direction: column; gap: 15px; max-height: 500px; overflow-y: auto; padding-right: 5px;"></div>
+      </div>
+    </div>
+  </div>
+</div>

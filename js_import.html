@@ -1,0 +1,90 @@
+<script>
+  // ==========================================
+  // データの取込管理 画面用ロジック
+  // ==========================================
+
+  function switchImportTab(tab) { 
+    currentImportTab = tab; 
+    document.getElementById('tab-budget').classList.toggle('active', tab === 'budget'); 
+    document.getElementById('tab-actual').classList.toggle('active', tab === 'actual');
+    document.getElementById('import-desc-text').innerText = tab === 'budget' ? '各月のカードから「予算データ」のインポートを行えます。' : '各月のカードから「実績データ」のインポートを行えます。'; 
+    renderImportGrid();
+  }
+
+  function loadImportStatus() { 
+    try { 
+      const yearEl = document.getElementById('importPageYear') || document.getElementById('targetYear'); 
+      const year = yearEl ? yearEl.value : '2025'; 
+      const grid = document.getElementById('import-grid'); 
+      if(!grid) return;
+      grid.innerHTML = '<div style="padding:20px; color:#888; font-weight:bold;">状況を取得中...</div>'; 
+      google.script.run.withSuccessHandler(statusMap => { 
+        try { 
+          if(statusMap && statusMap.error) { grid.innerHTML = `<div style="color:red; padding:20px;">エラー: ${statusMap.error}</div>`; return; } 
+          currentImportData = statusMap; renderImportGrid(); 
+        } catch(e) { grid.innerHTML = `<div style="color:red; padding:20px;">表示処理エラー: ${e.message}</div>`; } 
+      }).withFailureHandler(e => { grid.innerHTML = `<div style="color:red; padding:20px;">通信エラー: ${e.message}</div>`; }).getImportStatus(year);
+    } catch(err) { alert("loadImportStatus Error: " + err.message); } 
+  }
+
+  function renderImportGrid() { 
+    const grid = document.getElementById('import-grid');
+    if(!currentImportData || !grid) return; 
+    grid.innerHTML = ''; 
+    Object.keys(currentImportData).sort().forEach(ym => { 
+      const d = currentImportData[ym]; 
+      const monthLabel = `${ym.substring(0,4)}年${parseInt(ym.substring(4,6))}月`; 
+      const isDone = currentImportTab === 'budget' ? d.budget : d.actual; 
+      const lastDate = currentImportTab === 'budget' ? d.budgetDate : d.actualDate; 
+      const cardClass = isDone ? 'done' : 'pending'; 
+      const icon = isDone ? 'check_circle' : 'hourglass_empty'; 
+      const card = document.createElement('div'); 
+      card.className = `import-card ${cardClass}`; 
+      card.innerHTML = `
+        <div>
+          <div class="import-month-title">
+            <span>${monthLabel}</span>
+            <span class="import-status ${cardClass}"><span class="material-icons" style="font-size:1rem; vertical-align:middle;">${icon}</span> ${isDone ? 'データあり' : '未取込'}</span>
+          </div>
+          <div class="import-detail"><strong><span class="material-icons" style="font-size:1rem; vertical-align:middle;">schedule</span> 最終取込:</strong> ${lastDate}</div>
+        </div>
+        <div>
+          <button class="btn" style="width:100%; margin-top:10px; background:${isDone ? '#f8f9fa' : 'var(--primary)'}; color:${isDone ? '#333' : '#fff'}; border:${isDone ? '1px solid #ccc' : 'none'};" onclick="executePageImport('${ym}', '${monthLabel}')"><span class="material-icons">cloud_download</span> ${isDone ? '再インポート' : 'インポートを実行'}</button>
+          ${isDone ? `<button class="btn" style="width:100%; margin-top:5px; background:#fff; color:#e74a3b; border:1px solid #e74a3b;" onclick="executePageClear('${ym}', '${monthLabel}')"><span class="material-icons">delete</span> データをクリア</button>` : ''}
+        </div>`; 
+      grid.appendChild(card); 
+    }); 
+  }
+
+  // ★ 改善適用：async/await を用いてネスト地獄を解消
+  async function executePageImport(ym, monthLabel) { 
+    const typeLabel = currentImportTab === 'budget' ? '【予算データ】' : '【実績データ】'; 
+    if(!confirm(`${monthLabel} の ${typeLabel} をインポートしますか？\n※既存のデータがある場合は上書きされます。`)) return; 
+    
+    showLoading(`${monthLabel} のデータを読み込んでいます...\n（※全社一括処理のため時間がかかります）`); 
+    
+    try {
+      const res = await runGasAsync('runVirtualImport', ym, currentImportTab);
+      
+      if (res && res.error) {
+        alert("エラー: " + res.error);
+      } else {
+        alert(`完了しました。\n詳細: ${res.detail}`);
+        loadImportStatus();
+      }
+    } catch (e) {
+      handleGenericError(e, 'runVirtualImport');
+    } finally {
+      hideLoading();
+    }
+  }
+
+  function executePageClear(ym, monthLabel) { 
+    const typeLabel = currentImportTab === 'budget' ? '【予算データ】' : '【実績データ】'; 
+    if(!confirm(`本当に ${monthLabel} の ${typeLabel} をクリアしますか？`)) return;
+    showLoading("データをクリア中..."); 
+    google.script.run.withSuccessHandler(res => { 
+      hideLoading(); if(res && res.error) alert("エラー: " + res.error); else { alert(res.msg); loadImportStatus(); } 
+    }).withFailureHandler(e => handleGenericError(e, 'clearCacheData')).clearCacheData(ym, false, currentImportTab);
+  }
+</script>

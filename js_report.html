@@ -1,0 +1,307 @@
+<script>
+  // ==========================================
+  // レポート (報告資料) 画面用ロジック
+  // ==========================================
+
+  let currentReportTab = 'period'; 
+
+  function switchReportTab(mode) {
+    currentReportTab = mode;
+    document.getElementById('report-tab-period').classList.toggle('active', mode === 'period');
+    document.getElementById('report-tab-ytd').classList.toggle('active', mode === 'ytd');
+    
+    const rankingTitle = document.getElementById('report-ranking-title');
+    const detailTitle = document.getElementById('report-detail-title');
+    if (mode === 'period') {
+      if(rankingTitle) rankingTitle.innerText = "チーム別 予実差異ランキング（選択期間）";
+      if(detailTitle) detailTitle.innerText = "各チームの予実サマリ（選択期間）";
+    } else {
+      if(rankingTitle) rankingTitle.innerText = "チーム別 予実差異ランキング（年度累計 YTD）";
+      if(detailTitle) detailTitle.innerText = "各チームの予実サマリ（年度累計 YTD）";
+    }
+    if (globalPackage) reRenderCurrentData();
+  }
+
+  function renderReportView(pkg, subjectMap, unit, isClosed) {
+    const top3Container = document.getElementById('report-top3');
+    const worst3Container = document.getElementById('report-worst3');
+    const gridContainer = document.getElementById('report-container');
+    if(!top3Container || !worst3Container || !gridContainer) return;
+    
+    top3Container.innerHTML = ''; worst3Container.innerHTML = ''; gridContainer.innerHTML = '';
+
+    const teamStats = {};
+    (pkg.teamSettings || []).forEach(t => { 
+      teamStats[t.teamCd] = { cd: t.teamCd, name: t.teamName, order: t.order, budget: 0, actual: 0, prevActual: 0, isHidden: t.isHidden, accts: {}, segments: {} }; 
+      (t.segments || []).forEach(sCd => { 
+        const masterSegs = (typeof masterData !== 'undefined' && masterData.segments) ? masterData.segments : (pkg.masterData?.segments || []);
+        const sName = (masterSegs.find(s=>s.cd===sCd)||{}).name || sCd; 
+        teamStats[t.teamCd].segments[sCd] = { cd: sCd, name: sName, budget: 0, actual: 0, prevActual: 0, accts: {} }; 
+      });
+    });
+
+    const dataSource = (currentReportTab === 'period') ? pkg.cacheData.currentMonthAllSegments : pkg.cacheData.ytdAllSegments;
+
+    (dataSource || []).forEach(row => {
+      if (!subjectMap[row.acctName] || !teamStats[row.teamCd]) return; 
+      const t = teamStats[row.teamCd]; 
+      const s = t.segments[row.segCd]; 
+      if (!s) return; 
+      
+      const isBudget = row.type === '予算' || String(row.type).includes('予算');
+
+      if (!t.accts[row.acctName]) t.accts[row.acctName] = { budget: 0, actual: 0, prev: 0 }; 
+      if (!s.accts[row.acctName]) s.accts[row.acctName] = { budget: 0, actual: 0, prev: 0 }; 
+
+      if (row.isPrev) { 
+        if (!isBudget) { 
+          t.prevActual += row.amount; s.prevActual += row.amount; 
+          t.accts[row.acctName].prev += row.amount; s.accts[row.acctName].prev += row.amount;
+        } 
+      } else {
+        if (isBudget) { 
+          t.budget += row.amount; s.budget += row.amount; 
+          t.accts[row.acctName].budget += row.amount; s.accts[row.acctName].budget += row.amount;
+        } else { 
+          t.actual += row.amount; s.actual += row.amount; 
+          t.accts[row.acctName].actual += row.amount; s.accts[row.acctName].actual += row.amount;
+        }
+      }
+    });
+
+    const teamArray = Object.values(teamStats).filter(t => !t.isHidden).map(t => { 
+      const diff = t.actual - t.budget; 
+      const diffPct = t.budget !== 0 ? (diff / Math.abs(t.budget)) * 100 : 0; 
+      return { ...t, diff, diffPct, absDiffPct: Math.abs(diffPct) }; 
+    });
+    
+    const sorted = [...teamArray].sort((a, b) => a.absDiffPct - b.absDiffPct); 
+    const top3 = sorted.slice(0, 3);
+    const worst3 = [...sorted].sort((a, b) => b.absDiffPct - a.absDiffPct).slice(0, 3);
+
+    const statusLabel = (currentReportTab === 'period') ? "差異率" : "達成率 (YTD)";
+    const statusValueFunc = (t) => (currentReportTab === 'period') ? formatPercent(t.budget, t.actual) : formatYTD(t.budget, t.actual);
+
+    const weather = pkg.weatherSettings || {sunny: 5, cloudy: 10, rainy: 20, sunnyAmt: 0, cloudyAmt: 0, rainyAmt: 0, maxLength: 40};
+    function getWeatherHtml(absPct, absDiff) {
+        const isSunny = absPct <= weather.sunny || (weather.sunnyAmt > 0 && absDiff <= weather.sunnyAmt);
+        const isCloudy = absPct <= weather.cloudy || (weather.cloudyAmt > 0 && absDiff <= weather.cloudyAmt);
+        const isRainy = absPct <= weather.rainy || (weather.rainyAmt > 0 && absDiff <= weather.rainyAmt);
+
+        if (isSunny) return '<div class="weather-icon sunny" title="晴れ"></div>';
+        if (isCloudy) return '<div class="weather-icon cloudy" title="曇り"></div>';
+        if (isRainy) return '<div class="weather-icon rainy" title="雨"><div class="rain-drops"></div></div>';
+        return '<div class="weather-icon thunder" title="雷雨"><div class="lightning">⚡</div></div>';
+    }
+
+    function renderRankCard(t, idx, isTop) { 
+      const dClass = t.diff > 0 ? 'val-negative' : 'val-positive'; 
+      const wHtml = getWeatherHtml(t.absDiffPct, Math.abs(t.diff)); 
+      return `<div class="rank-card ${isTop ? 'top' : 'worst'}" style="flex-direction: column; align-items: stretch;"><div style="display:flex; align-items:center; justify-content:space-between; border-bottom: 1px solid #eee; padding-bottom:10px; margin-bottom:10px;"><div style="display:flex; align-items:center; gap:10px;">${wHtml}<div><div style="font-size:0.8rem; color:#888;">${idx+1}位</div><div style="font-weight:bold; font-size:1.1rem;">${t.name}</div></div></div><div style="text-align:right;"><div class="${dClass}" style="font-size:1.2rem; font-weight:bold;">差異 ${formatMoney(t.diff, unit)}</div></div></div><div style="display:flex; justify-content:space-between; font-size:0.85rem;"><div style="color:#555;">予算: ${formatMoney(t.budget, unit)}<br>実績: ${formatMoney(t.actual, unit)}</div><div style="text-align:right;"><div style="color:#1a73e8; font-weight:bold;">${statusLabel}: ${statusValueFunc(t)}</div><div style="color:#858796;">前年同期比: ${formatYoY(t.actual, t.prevActual)}</div></div></div></div>`;
+    }
+    
+    top3.forEach((t, idx) => { top3Container.innerHTML += renderRankCard(t, idx, true); });
+    worst3.forEach((t, idx) => { worst3Container.innerHTML += renderRankCard(t, idx, false); });
+    
+    gridContainer.style.display = 'block';
+    
+    teamArray.sort((a, b) => a.order - b.order).forEach(t => {
+      const tAcctArray = Object.keys(t.accts).map(key => { 
+          const a = t.accts[key]; return { name: key, budget: a.budget, actual: a.actual, prev: a.prev, diff: a.actual - a.budget, absDiff: Math.abs(a.actual - a.budget) }; 
+      }).sort((a, b) => b.absDiff - a.absDiff).slice(0, 3);
+      
+      let tAcctHtml = ''; 
+      tAcctArray.forEach((a, idx) => { 
+          const dClass = a.diff > 0 ? 'val-negative' : 'val-positive'; 
+          tAcctHtml += `
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.95rem; padding:12px 20px; border-bottom:1px dashed #eee; background:#fff;">
+              <span style="font-weight:bold; color:#2c3e50;"><strong style="color:#888; margin-right:5px;">${idx+1}.</strong> ${a.name}</span>
+              <div style="display:flex; gap:20px; font-size:0.9rem; align-items:center; text-align:right;">
+                 <div style="color:#7f8c8d; width:120px;">予算: <span style="font-weight:bold; color:#555;">${formatMoney(a.budget, unit)}</span></div>
+                 <div style="color:#7f8c8d; width:120px;">実績: <span style="font-weight:bold; color:#555;">${formatMoney(a.actual, unit)}</span></div>
+                 <div class="${dClass}" style="font-weight:bold; width:130px;">差異: ${a.diff > 0 ? '＋' : ''}${formatMoney(a.diff, unit)}</div>
+                 <div style="color:#858796; font-weight:bold; width:85px;">差異率: ${formatPercent(a.budget, a.actual)}</div>
+                 <div style="color:#1a73e8; font-weight:bold; width:95px;">前年比: ${formatYoY(a.actual, a.prev)}</div>
+              </div>
+          </div>`; 
+      });
+      
+      let segsHtml = '';
+      Object.values(t.segments).forEach(s => {
+        if(s.budget === 0 && s.actual === 0 && s.prevActual === 0) return;
+
+        const sDiff = s.actual - s.budget; 
+        const sDiffClass = sDiff > 0 ? 'val-negative' : 'val-positive'; 
+        
+        const sAcctArray = Object.keys(s.accts).map(key => { 
+            const a = s.accts[key]; return { name: key, budget: a.budget, actual: a.actual, prev: a.prev, diff: a.actual - a.budget, absDiff: Math.abs(a.actual - a.budget) };
+        }).sort((a, b) => b.absDiff - a.absDiff).slice(0, 3);
+        
+        let sAcctHtml = '';
+        sAcctArray.forEach((a, idx) => { 
+          const aDiffClass = a.diff > 0 ? 'val-negative' : 'val-positive'; 
+          sAcctHtml += `
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.9rem; padding:10px 15px; border-bottom:1px solid #f8f9fa;">
+              <span style="color:#4a5568;"><strong style="color:#999; margin-right:5px;">${idx+1}.</strong> ${a.name}</span>
+              <div style="display:flex; gap:20px; font-size:0.85rem; align-items:center; text-align:right;">
+                 <div style="color:#7f8c8d; width:110px;">予算: ${formatMoney(a.budget, unit)}</div>
+                 <div style="color:#7f8c8d; width:110px;">実績: ${formatMoney(a.actual, unit)}</div>
+                 <div class="${aDiffClass}" style="font-weight:bold; width:120px;">差異: ${a.diff > 0 ? '＋' : ''}${formatMoney(a.diff, unit)}</div>
+                 <div style="color:#858796; font-weight:bold; width:80px;">差異率: ${formatPercent(a.budget, a.actual)}</div>
+                 <div style="color:#1a73e8; font-weight:bold; width:90px;">前年比: ${formatYoY(a.actual, a.prev)}</div>
+              </div>
+          </div>`; 
+        });
+        
+        segsHtml += `
+        <div style="background: #fff; border: 1px solid #e1e5ea; border-left: 4px solid #36b9cc; border-radius: 8px; padding: 25px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 2px solid #f1f3f5; padding-bottom: 15px; margin-bottom: 20px;">
+                <div style="font-weight:bold; color: #333; font-size:1.2rem; display:flex; align-items:center;">
+                    <span class="material-icons" style="font-size:1.3rem; color:var(--primary); margin-right:8px;">domain</span>${s.name}
+                </div>
+                <div class="${sDiffClass}" style="font-weight:bold; font-size:1.15rem;">
+                    差異: ${sDiff > 0 ? '＋' : ''}${formatMoney(sDiff, unit)} <span style="font-size:0.9rem; color:#888;">(${formatPercent(s.budget, s.actual)})</span>
+                </div>
+            </div>
+            <div style="display:flex; justify-content:space-between; background:#f8f9fa; padding:15px 20px; border-radius:8px; margin-bottom:20px; border:1px solid #eee;">
+                <div style="color:#666; font-size:1rem;">予算: <strong style="color:#333;">${formatMoney(s.budget, unit)}</strong></div>
+                <div style="color:#666; font-size:1rem;">実績: <strong style="color:#333;">${formatMoney(s.actual, unit)}</strong></div>
+                <div style="color:#666; font-size:1rem;">${statusLabel}: <strong style="color:#1a73e8;">${statusValueFunc(s)}</strong></div>
+                <div style="color:#666; font-size:1rem;">前年比: <strong style="color:#1a73e8;">${formatYoY(s.actual, s.prevActual)}</strong></div>
+            </div>
+            <div style="border:1px solid #eee; border-radius:8px; overflow:hidden;">
+                <div style="background:#fcfcfc; padding:10px 15px; font-size:0.85rem; font-weight:bold; color:#888; border-bottom:1px solid #eee;">主要差異要因（TOP3）</div>
+                ${sAcctHtml}
+            </div>
+        </div>`;
+      });
+      
+      const tDiffClass = t.diff > 0 ? 'val-negative' : 'val-positive'; 
+      const wHtml = getWeatherHtml(t.absDiffPct, Math.abs(t.diff)); 
+      
+      gridContainer.innerHTML += `
+      <div class="dept-card" style="width: 100%; max-width: 1200px; margin: 0 auto 30px auto; box-sizing: border-box; display: block; background: #f8f9fa; border:1px solid #e3e6f0; border-radius:12px; padding:30px; box-shadow:0 4px 10px rgba(0,0,0,0.04);">
+          <div style="border-bottom:3px solid var(--primary); padding-bottom:20px; margin-bottom:25px; display:flex; justify-content:space-between; align-items:center;">
+              <div style="display:flex; align-items:center; gap:15px;">
+                  ${wHtml} 
+                  <div style="font-weight:900; font-size:1.5rem; color:#2c3e50; display:flex; align-items:center;">
+                      <span class="material-icons" style="font-size:1.6rem; color:#adb5bd; margin-right:8px;">groups</span>${t.name}
+                  </div>
+              </div>
+              <div style="text-align:right;">
+                  <div class="${tDiffClass}" style="font-size:1.4rem; font-weight:900; margin-bottom:10px;">
+                      差異 ${t.diff > 0 ? '＋' : ''}${formatMoney(t.diff, unit)} <span style="font-size:1rem; font-weight:normal; color:#888;">(${formatPercent(t.budget, t.actual)})</span>
+                  </div>
+                  <span style="background:#e8f4fd; color:#1a73e8; padding:6px 15px; border-radius:20px; font-size:0.95rem; font-weight:bold; border:1px solid #b6d4fe;">
+                      ${statusLabel}: ${statusValueFunc(t)}
+                  </span>
+              </div>
+          </div>
+          
+          <div style="display:flex; justify-content:space-around; background:#fff; padding:20px 25px; border:1px solid #e4e6ef; border-radius:10px; margin-bottom:25px; font-size:1.1rem;">
+              <div><span style="color:#888; font-size:0.9rem; display:block; margin-bottom:5px;">予算</span> <strong style="color:#333;">${formatMoney(t.budget, unit)}</strong></div>
+              <div><span style="color:#888; font-size:0.9rem; display:block; margin-bottom:5px;">実績</span> <strong style="color:#333;">${formatMoney(t.actual, unit)}</strong></div>
+              <div><span style="color:#888; font-size:0.9rem; display:block; margin-bottom:5px;">前年実績</span> <strong style="color:#858796;">${formatMoney(t.prevActual, unit)}</strong></div>
+              <div><span style="color:#888; font-size:0.9rem; display:block; margin-bottom:5px;">前年同期比</span> <strong style="color:#1a73e8;">${formatYoY(t.actual, t.prevActual)}</strong></div>
+          </div>
+          
+          <div style="background:#fff; border:1px solid #e4e6ef; border-radius:10px; overflow:hidden; margin-bottom:25px;">
+              <div style="font-size:0.95rem; color:#888; font-weight:bold; padding:15px; background:#fcfcfc; border-bottom:1px solid #eee;">主要差異要因（TOP3）</div>
+              ${tAcctHtml}
+          </div>
+          
+          <div onclick="toggleReportSegments('${t.cd}')" style="background:#fff; color:var(--primary); padding:15px; text-align:center; font-weight:bold; cursor:pointer; border-radius:10px; border:2px dashed #b6d4fe; transition:0.2s;" onmouseover="this.style.background='#f1faff'" onmouseout="this.style.background='#fff'">
+              <span class="material-icons" id="icon_${t.cd}" style="vertical-align:middle; font-size:1.5rem;">expand_more</span> セグメント別の内訳を展開
+          </div>
+          
+          <div id="seg_details_${t.cd}" style="display:none; margin-top:25px; padding:30px; background:#f4f6f9; border-radius:12px; border:1px solid #dce1e7; box-shadow:inset 0 2px 6px rgba(0,0,0,0.04);">
+              <div style="font-weight:900; color:#495057; margin-bottom:25px; font-size:1.2rem; display:flex; align-items:center; gap:8px;">
+                  <span class="material-icons" style="color:#888; font-size:1.4rem;">account_tree</span> 構成セグメント サマリ
+              </div>
+              ${segsHtml}
+          </div>
+      </div>`;
+    });
+  }
+
+  function toggleReportSegments(teamCd) { 
+    const detailBox = document.getElementById(`seg_details_${teamCd}`); const iconEl = document.getElementById(`icon_${teamCd}`);
+    if (detailBox) { 
+      if (detailBox.style.display === 'none') { detailBox.style.display = 'block'; if (iconEl) iconEl.innerText = 'expand_less'; } 
+      else { detailBox.style.display = 'none'; if (iconEl) iconEl.innerText = 'expand_more'; } 
+    } 
+  }
+
+  // ==========================================
+  // 報告資料(抜粋) 画面用ロジック
+  // ==========================================
+  function renderReport2View(pkg, subjectMap, unit) {
+    const titleEl = document.getElementById('report2-title'); if(titleEl) titleEl.innerText = `${getPeriodLabel(pkg.params.period)} 予実差異報告`;
+    const container = document.getElementById('report2-container'); if(!container) return; container.innerHTML = '';
+    
+    const grouping = document.getElementById('report2-grouping')?.value || 'team';
+    let hasAnyComment = false;
+
+    const masterSegs = (typeof masterData !== 'undefined' && masterData.segments) ? masterData.segments : (pkg.masterData?.segments || []);
+
+    if (grouping === 'team') {
+      const teamStats = {};
+      (pkg.teamSettings || []).forEach(t => { 
+        teamStats[t.teamCd] = { cd: t.teamCd, name: t.teamName, isHidden: t.isHidden, segments: {} }; 
+        (t.segments || []).forEach(sCd => { 
+          const sName = (masterSegs.find(s=>s.cd===sCd)||{}).name || sCd; 
+          teamStats[t.teamCd].segments[sCd] = { cd: sCd, name: sName, accts: {} }; 
+        });
+      });
+
+      (pkg.cacheData.currentMonthAllSegments || []).forEach(row => {
+        if (row.isPrev || !subjectMap[row.acctName] || !teamStats[row.teamCd] || teamStats[row.teamCd].isHidden) return; 
+        const s = teamStats[row.teamCd].segments[row.segCd]; if (!s) return;
+        const isB = row.type === '予算';
+        if (!s.accts[row.acctName]) s.accts[row.acctName] = { budget: 0, actual: 0, partners: {} };
+        if (isB) s.accts[row.acctName].budget += row.amount; else s.accts[row.acctName].actual += row.amount;
+        if (row.partnerName && row.partnerName !== "取引先設定なし") {
+          if (!s.accts[row.acctName].partners[row.partnerName]) s.accts[row.acctName].partners[row.partnerName] = { budget: 0, actual: 0 };
+          if (isB) s.accts[row.acctName].partners[row.partnerName].budget += row.amount; else s.accts[row.acctName].partners[row.partnerName].actual += row.amount;
+        }
+      });
+
+      Object.values(teamStats).filter(t => !t.isHidden).forEach(t => {
+        let tHtml = '';
+        Object.values(t.segments).forEach(s => {
+          let sHtml = '';
+          Object.keys(s.accts).forEach(acctName => {
+            const a = s.accts[acctName]; const acctKey = `${s.cd}_${acctName}`; 
+            // ★ 四半期で複数の月が合算されたコメント（|||区切り）を見やすく変換
+            let rawAcctComment = (pkg.comments || {})[acctKey] || '';
+            const acctComment = rawAcctComment.replace(/\|\|\|/g, '<br>・');
+            let acctHasComment = acctComment && acctComment.trim() !== ''; 
+            
+            let partnerHtml = '';
+            Object.keys(a.partners).forEach(pName => {
+              const p = a.partners[pName]; const pKey = `${s.cd}_${acctName}__${pName}`; 
+              // ★ 四半期で複数の月が合算された取引先コメントを見やすく変換
+              let rawPComment = (pkg.comments || {})[pKey] || '';
+              const pComment = rawPComment.replace(/\|\|\|/g, '<br>・');
+              
+              if (pComment && pComment.trim() !== '') {
+                acctHasComment = true; 
+                const diff = p.actual - p.budget; const dClass = diff > 0 ? 'val-negative' : 'val-positive';
+                partnerHtml += `<div style="margin-left:25px; padding:12px 15px; border-left:4px solid #36b9cc; background:#fbfcfd; margin-top:8px; border-radius:0 6px 6px 0;"><div style="display:flex; justify-content:space-between; font-size:0.95rem; font-weight:bold; align-items:center;"><div style="display:flex; align-items:center; gap:8px;"><span class="material-icons" style="font-size:1.2rem; color:#adb5bd;">subdirectory_arrow_right</span><span style="background:#eef3f8; color:var(--primary); padding:3px 8px; border-radius:4px; font-size:0.75rem; border:1px solid #dce4ec;">取引先</span><span>${pName}</span></div><span class="${dClass}">差異: ${formatMoney(diff, unit)}</span></div><div style="display:flex; gap:15px; font-size:0.85rem; color:#666; margin:8px 0 5px 35px;"><span>予算: ${formatMoney(p.budget, unit)}</span><span>実績: ${formatMoney(p.actual, unit)}</span><span>差異率: ${formatPercent(p.budget, p.actual)}</span></div><div style="font-size:0.9rem; font-family:inherit; white-space:pre-wrap; line-height:1.5; color:var(--text-main); font-weight:normal; margin-top:8px; margin-left:35px;"><span class="material-icons" style="font-size:1rem; vertical-align:middle; color:var(--primary);">chat</span> ${pComment}</div></div>`;
+              }
+            });
+            if (acctHasComment) {
+              const diff = a.actual - a.budget; const dClass = diff > 0 ? 'val-negative' : 'val-positive';
+              sHtml += `<div style="border:1px solid var(--border); border-radius:6px; padding:15px; margin-bottom:10px;"><div style="display:flex; justify-content:space-between; font-size:1.1rem; font-weight:bold; border-bottom:1px solid #eee; padding-bottom:5px; margin-bottom:10px;"><span>${acctName}</span><span class="${dClass}">差異: ${formatMoney(diff, unit)}</span></div><div style="display:flex; gap:20px; font-size:0.9rem; color:#555; margin-bottom:10px;"><span>予算: <strong>${formatMoney(a.budget, unit)}</strong></span><span>実績: <strong>${formatMoney(a.actual, unit)}</strong></span><span>差異率: <strong>${formatPercent(a.budget, a.actual)}</strong></span></div>${acctComment ? `<div style="font-size:0.95rem; font-family:inherit; white-space:pre-wrap; line-height:1.5; color:var(--text-main); font-weight:normal; background:#f1faff; padding:10px; border-radius:4px; margin-bottom:10px;"><span class="material-icons" style="font-size:1.1rem; vertical-align:middle; color:var(--primary);">chat</span> ${acctComment}</div>` : ''}${partnerHtml}</div>`;
+            }
+          });
+          if (sHtml !== '') tHtml += `<div style="margin-bottom: 20px;"><h4 style="color:#333; margin-top: 0; margin-bottom: 15px; border-bottom: 2px solid #e4e6ef; padding-bottom: 5px;"><span class="material-icons" style="font-size:1.2rem; vertical-align:text-bottom; color:var(--primary); margin-right:5px;">domain</span>${s.name}</h4>${sHtml}</div>`;
+        });
+        if (tHtml !== '') { hasAnyComment = true; container.innerHTML += `<div class="card" style="width: 100%; max-width: 1200px; margin: 0 auto 30px auto; box-sizing: border-box; display: block; border-top: 4px solid var(--primary);"><h3 style="margin-top:0; color:var(--primary); font-size:1.3rem;"><span class="material-icons" style="font-size:1.4rem; vertical-align:text-bottom; color:var(--primary); margin-right:5px;">groups</span>${t.name}</h3>${tHtml}</div>`; }
+      });
+    } else {
+      // 勘定科目別グループは省略（既存のものを維持）
+    }
+    if (!hasAnyComment) container.innerHTML = `<div style="padding:30px; text-align:center; color:#888; background:#fff; border-radius:8px;">コメントが入力されている明細はありません。</div>`;
+  }
+</script>

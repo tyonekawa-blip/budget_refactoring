@@ -1,0 +1,196 @@
+<script>
+  // ==========================================
+  // 設定系ロジック 2: 報告部署（チーム）編成 (D&D対応)
+  // ==========================================
+
+  function initTeamSettings() { 
+    tempTeams = JSON.parse(JSON.stringify(masterData.teamSettings || [])); 
+    const assignedSegCds = new Set();
+    tempTeams.forEach(t => (t.segments || []).forEach(cd => assignedSegCds.add(cd))); 
+    tempUnassigned = (masterData.segments || []).filter(s => !assignedSegCds.has(s.cd)); 
+    renderTeamSettingsUI();
+  }
+
+  // ★ D&D: ドラッグ開始時
+  function onDragStartSeg(event, segCd, sourceTeamCd) {
+    event.dataTransfer.setData('text/plain', JSON.stringify({ segCd, sourceTeamCd }));
+    event.target.style.opacity = '0.5';
+  }
+
+  function onDragEndSeg(event) {
+    event.target.style.opacity = '1';
+  }
+
+  // ★ D&D: ドラッグ要素が乗った時
+  function onDragOverArea(event) {
+    event.preventDefault();
+    event.currentTarget.style.background = '#e1ecf8'; // ドロップ可能を視覚的にアピール
+  }
+
+  function onDragLeaveArea(event) {
+    event.currentTarget.style.background = '';
+  }
+
+  // ★ D&D: ドロップされた時の処理
+  function onDropSeg(event, targetTeamCd) {
+    event.preventDefault();
+    event.currentTarget.style.background = '';
+    
+    try {
+      const data = JSON.parse(event.dataTransfer.getData('text/plain'));
+      const segCd = data.segCd;
+      const sourceTeamCd = data.sourceTeamCd;
+      
+      if (sourceTeamCd === targetTeamCd) return; // 同じ場所なら何もしない
+      
+      syncTeamNames();
+      
+      // 1. 移動元のリストから削除
+      let movedSegObj = null;
+      if (sourceTeamCd === 'unassigned') {
+        const idx = tempUnassigned.findIndex(s => s.cd === segCd);
+        if (idx !== -1) movedSegObj = tempUnassigned.splice(idx, 1)[0];
+      } else {
+        const tIdx = tempTeams.findIndex(t => t.teamCd === sourceTeamCd);
+        if (tIdx !== -1) {
+          tempTeams[tIdx].segments = tempTeams[tIdx].segments.filter(cd => cd !== segCd);
+          movedSegObj = (masterData.segments || []).find(s => s.cd === segCd);
+        }
+      }
+      
+      if (!movedSegObj) return;
+
+      // 2. 移動先のリストに追加
+      if (targetTeamCd === 'unassigned') {
+        tempUnassigned.push(movedSegObj);
+      } else {
+        const tIdx = tempTeams.findIndex(t => t.teamCd === targetTeamCd);
+        if (tIdx !== -1) {
+          if (!tempTeams[tIdx].segments.includes(segCd)) {
+            tempTeams[tIdx].segments.push(segCd);
+          }
+        }
+      }
+      
+      renderTeamSettingsUI();
+    } catch(e) {
+      console.error("D&D Error:", e);
+    }
+  }
+
+  function renderTeamSettingsUI() { 
+    // --- 未割り当てエリア ---
+    const unassignedContainer = document.getElementById('unassigned-seg-container');
+    if (unassignedContainer) {
+      unassignedContainer.innerHTML = '';
+      if (tempUnassigned.length === 0) {
+        unassignedContainer.innerHTML = '<div style="color:#aaa; font-size:0.85rem; padding:10px; text-align:center;">すべて割り当て済み</div>';
+      } else {
+        tempUnassigned.forEach(s => { 
+          const badge = document.createElement('div');
+          badge.draggable = true;
+          badge.ondragstart = (e) => onDragStartSeg(e, s.cd, 'unassigned');
+          badge.ondragend = onDragEndSeg;
+          badge.style.cssText = 'display:inline-flex; align-items:center; background:#fff; border:1px dashed #adb5bd; padding:4px 8px; border-radius:4px; margin-right:5px; margin-bottom:5px; font-size:0.85rem; cursor:grab; box-shadow:0 1px 2px rgba(0,0,0,0.05);';
+          badge.innerHTML = `<span class="material-icons" style="font-size:1rem; color:#adb5bd; margin-right:5px;">drag_indicator</span>${s.name}`;
+          unassignedContainer.appendChild(badge);
+        });
+      }
+      
+      // 未割り当てエリアをドロップ可能にする
+      const dropZone = document.getElementById('unassigned-drop-zone');
+      if (dropZone) {
+        dropZone.ondragover = onDragOverArea;
+        dropZone.ondragleave = onDragLeaveArea;
+        dropZone.ondrop = (e) => onDropSeg(e, 'unassigned');
+      }
+    }
+
+    // --- チームリストエリア ---
+    const tCont = document.getElementById('team-list-container'); if(!tCont) return; 
+    tCont.innerHTML = ''; 
+    if(tempTeams.length === 0) { 
+      tCont.innerHTML = '<div style="padding:20px; text-align:center; color:#888;">チームがありません。</div>';
+    } else { 
+      tempTeams.forEach((t, idx) => { 
+        const segTags = (t.segments || []).map(cd => { 
+          const seg = (masterData.segments || []).find(sg => sg.cd === cd); 
+          const sName = seg ? seg.name : cd; 
+          return `<div draggable="true" ondragstart="onDragStartSeg(event, '${cd}', '${t.teamCd}')" ondragend="onDragEndSeg(event)" style="display:inline-flex; align-items:center; background:#f1f4f8; border:1px solid #dce1e7; padding:3px 8px; border-radius:4px; margin-right:5px; margin-bottom:5px; font-size:0.85rem; cursor:grab;">
+                    <span class="material-icons" style="font-size:1rem; color:#adb5bd; margin-right:5px;">drag_indicator</span>${sName}
+                  </div>`; 
+        }).join(''); 
+        
+        const div = document.createElement('div'); 
+        div.style.cssText = 'background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 10px; display: flex; align-items: flex-start; gap: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'; 
+        
+        div.innerHTML = `
+          <div style="display:flex; flex-direction:column; align-items:center; gap:3px; margin-top:5px;">
+            <button onclick="moveTeamOrder(${idx}, -1)" ${idx === 0 ? 'disabled' : ''} style="background:${idx === 0 ? '#f1f1f1' : '#eef3f8'}; border:1px solid ${idx === 0 ? '#ddd' : '#b6d4fe'}; border-radius:4px; cursor:${idx===0?'not-allowed':'pointer'}; padding:2px; display:flex;"><span class="material-icons" style="font-size:1.2rem; color:${idx === 0 ? '#ccc' : 'var(--primary)'}">keyboard_arrow_up</span></button>
+            <div style="font-size:0.75rem; font-weight:bold; color:#555;">${idx + 1}</div>
+            <button onclick="moveTeamOrder(${idx}, 1)" ${idx === tempTeams.length - 1 ? 'disabled' : ''} style="background:${idx === tempTeams.length - 1 ? '#f1f1f1' : '#eef3f8'}; border:1px solid ${idx === tempTeams.length - 1 ? '#ddd' : '#b6d4fe'}; border-radius:4px; cursor:${idx===tempTeams.length-1?'not-allowed':'pointer'}; padding:2px; display:flex;"><span class="material-icons" style="font-size:1.2rem; color:${idx === tempTeams.length - 1 ? '#ccc' : 'var(--primary)'}">keyboard_arrow_down</span></button>
+          </div>
+          <div style="width: 45px; text-align:center; font-weight:bold; color:#fff; background:var(--primary); padding:5px; border-radius:4px; font-size:0.85rem; margin-top:5px;">${t.teamCd}</div>
+          <div style="flex: 1;">
+            <input type="text" id="team_name_${t.teamCd}" value="${t.teamName}" placeholder="チーム名" style="width:100%; padding:5px; margin-bottom:10px; font-weight:bold; border:1px solid #ddd; border-radius:4px;">
+            <div style="font-size:0.8rem; color:#666; margin-bottom:5px;"><span class="material-icons" style="font-size:0.9rem; vertical-align:middle;">corporate_fare</span> 構成セグメント <span style="color:#aaa;">(未割り当てからドロップして追加)</span>:</div>
+            
+            <div ondragover="onDragOverArea(event)" ondragleave="onDragLeaveArea(event)" ondrop="onDropSeg(event, '${t.teamCd}')" style="min-height: 40px; padding: 10px; border: 1px dashed #ccc; border-radius: 4px; background: #fafafa; transition: 0.2s;">
+              ${segTags || '<span style="color:#aaa; font-size:0.8rem;">(ここにセグメントをドロップ)</span>'}
+            </div>
+            
+            <div style="margin-top: 10px; border-top:1px dashed #eee; padding-top:8px;">
+              <label style="font-size:0.8rem; cursor:pointer;"><input type="checkbox" id="team_hide_${t.teamCd}" ${t.isHidden ? 'checked' : ''}> ダッシュボードの個別行として非表示にする</label>
+            </div>
+          </div>
+          <button class="btn" style="background:#fff; color:#e74a3b; border:1px solid #e74a3b; padding:5px 10px; margin-top:5px;" onclick="disbandTeam('${t.teamCd}')" title="チームを解散して全て未割り当てに戻す"><span class="material-icons" style="font-size:1rem;">link_off</span> 解散</button>
+        `; 
+        tCont.appendChild(div); 
+      });
+    } 
+  }
+
+  function createNewTeamBtn() { 
+    let maxNum = 0;
+    tempTeams.forEach(t => { const m = t.teamCd.match(/^T(\d+)$/); if(m) { const num = parseInt(m[1], 10); if(num > maxNum) maxNum = num; } });
+    const newCd = 'T' + String(maxNum + 1).padStart(2, '0'); 
+    syncTeamNames();
+    tempTeams.push({ teamCd: newCd, teamName: '新規チーム', order: tempTeams.length + 1, segments: [], isHidden: false }); 
+    renderTeamSettingsUI(); 
+  }
+
+  function disbandTeam(teamCd) { 
+    const tIdx = tempTeams.findIndex(t => t.teamCd === teamCd);
+    if (tIdx === -1) return; 
+    syncTeamNames(); 
+    const t = tempTeams[tIdx];
+    (t.segments || []).forEach(cd => { const seg = (masterData.segments || []).find(sg => sg.cd === cd); if (seg) tempUnassigned.push(seg); });
+    tempTeams.splice(tIdx, 1); 
+    renderTeamSettingsUI(); 
+  }
+
+  function moveTeamOrder(index, direction) { 
+    if (index + direction < 0 || index + direction >= tempTeams.length) return;
+    syncTeamNames(); 
+    const temp = tempTeams[index]; 
+    tempTeams[index] = tempTeams[index + direction]; 
+    tempTeams[index + direction] = temp; 
+    renderTeamSettingsUI();
+  }
+
+  function syncTeamNames() { 
+    tempTeams.forEach(t => { 
+      const el = document.getElementById('team_name_' + t.teamCd); if (el) t.teamName = el.value; 
+      const chk = document.getElementById('team_hide_' + t.teamCd); if (chk) t.isHidden = chk.checked;
+    });
+  }
+
+  function saveTeamSettingsBtn() { 
+    syncTeamNames(); 
+    if (tempTeams.some(t => t.teamName.trim() === '')) { alert('チーム名が未入力のチームがあります。'); return; } 
+    if (tempUnassigned.length > 0) { if(!confirm(`未割り当てのセグメントが ${tempUnassigned.length} 件あります。これらはダッシュボードに表示されませんが保存しますか？`)) return; } else { if(!confirm('保存しますか？')) return; } 
+    showLoading("保存中..."); 
+    const arr = tempTeams.map((t, idx) => [ t.teamCd, t.teamName, idx + 1, t.segments.join(','), t.isHidden ? true : false ]);
+    google.script.run.withSuccessHandler(() => { alert('保存しました。'); reloadApp(); }).withFailureHandler(e => handleGenericError(e, 'saveTeamSettings')).saveTeamSettings(arr); 
+  }
+</script>

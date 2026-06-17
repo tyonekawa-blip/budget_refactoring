@@ -1,0 +1,30 @@
+<div id="view-settings" class="view">
+  <div class="card">
+    <h3 class="card-title">勘定科目 PL表示設定<button class="btn" style="background:#1cc88a; font-size: 0.9rem;" onclick="saveSubjectSettings()">設定を保存</button></h3>
+    <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+      <div style="flex: 1; position: relative; min-width: 250px;">
+        <span class="material-icons" style="position: absolute; left: 10px; top: 10px; color: #aaa; font-size: 1.1rem;">search</span>
+        <input type="text" id="subjectSearch" onkeyup="filterSubjects()" placeholder="検索..." style="box-sizing: border-box; width: 100%; padding: 8px 10px 8px 35px; border: 1px solid var(--border); border-radius: 4px; font-size: 0.9rem;">
+      </div>
+      <button class="btn" style="background:#fff; color:#36b9cc; border: 1px solid #36b9cc; font-size: 0.85rem;" onclick="exportSubjectSettings()">CSV出力</button>
+      <button class="btn" style="background:#fff; color:#f6c23e; border: 1px solid #f6c23e; font-size: 0.85rem;" onclick="document.getElementById('importSubjectFile').click()">CSV読込</button>
+      <input type="file" id="importSubjectFile" accept=".csv" style="display:none" onchange="importSubjectSettings(event)">
+    </div>
+    <div style="max-height: 55vh; overflow-y: auto; border: 1px solid #e4e6ef; border-radius: 4px;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th style="width: 80px; text-align: center;">PL対象</th>
+            <th style="width: 120px;">科目コード</th>
+            <th style="width: 200px;">勘定科目名</th>
+            <th>説明</th>
+            <th style="width: 150px;">自動判定状況</th>
+          </tr>
+        </thead>
+        <tbody id="settings-tbody">
+          <tr><td colspan="5" style="text-align:center; padding:30px; color:#888; font-weight:bold;">状況を取得中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,502 @@
+<script>
+  // ==========================================
+  // 創会用レポート 画面用ロジック (スマートUI & 印刷特大化 & 推移表示版)
+  // ==========================================
+
+  function switchSokaiTab(tab) {
+    document.getElementById('sokai-tab-report').classList.toggle('active', tab === 'report');
+    document.getElementById('sokai-tab-settings').classList.toggle('active', tab === 'settings');
+    document.getElementById('sokai-content-report').style.display = tab === 'report' ? 'block' : 'none';
+    document.getElementById('sokai-content-settings').style.display = tab === 'settings' ? 'block' : 'none';
+    
+    if(tab === 'settings' && globalPackage) {
+      const w = globalPackage.weatherSettings || {sunny: 5, cloudy: 10, rainy: 20, sunnyAmt: 0, cloudyAmt: 0, rainyAmt: 0, maxLength: 40};
+      document.getElementById('weather-sunny').value = w.sunny; document.getElementById('weather-cloudy').value = w.cloudy; document.getElementById('weather-rainy').value = w.rainy;
+      document.getElementById('weather-sunny-amt').value = w.sunnyAmt || 0; document.getElementById('weather-cloudy-amt').value = w.cloudyAmt || 0; document.getElementById('weather-rainy-amt').value = w.rainyAmt || 0;
+      document.getElementById('soukai-comment-max').value = w.maxLength || 40;
+    }
+  }
+
+  function saveWeatherSettingsBtn() {
+    const s = Number(document.getElementById('weather-sunny').value) || 5;
+    const c = Number(document.getElementById('weather-cloudy').value) || 10;
+    const r = Number(document.getElementById('weather-rainy').value) || 20;
+    const sAmt = Number(document.getElementById('weather-sunny-amt').value) || 0;
+    const cAmt = Number(document.getElementById('weather-cloudy-amt').value) || 0;
+    const rAmt = Number(document.getElementById('weather-rainy-amt').value) || 0;
+    const maxLen = Number(document.getElementById('soukai-comment-max').value) || 40;
+    
+    if(!confirm('設定を保存しますか？')) return;
+    showLoading('保存中...');
+    
+    google.script.run.withSuccessHandler(res => {
+      hideLoading();
+      if(res && res.error) { alert("エラー: " + res.error); return; }
+      alert('保存しました！');
+      if(globalPackage) {
+        globalPackage.weatherSettings = {sunny: s, cloudy: c, rainy: r, sunnyAmt: sAmt, cloudyAmt: cAmt, rainyAmt: rAmt, maxLength: maxLen};
+        renderReportSoukai(globalPackage, globalPackage.subjectMapCache, parseInt(document.getElementById('displayUnit').value));
+        switchSokaiTab('report');
+      }
+    }).withFailureHandler(e => handleGenericError(e, 'saveWeatherSettings')).saveWeatherSettings(s, c, r, sAmt, cAmt, rAmt, maxLen);
+  }
+
+  // ★ 印刷用ロジック：画面ではスマートなサイズだが、印刷（PDF）時には特大になるようにCSSで制御
+  function printSokaiTeam(teamCd) {
+    const printTarget = document.getElementById('print_card_' + teamCd);
+    if (!printTarget) return;
+    const printContent = printTarget.outerHTML;
+    const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).map(el => el.outerHTML).join('\n');
+    const printWindow = window.open('', '_blank', 'width=1150,height=850');
+    const endScriptTag = '</' + 'script>';
+
+    printWindow.document.write(`
+        <html><head><title>創会レポート印刷</title>${styles}
+            <style>
+                @page { size: A4 landscape; margin: 5mm; }
+                body { background: #fff !important; margin: 0; padding: 5mm; box-sizing: border-box; width: 287mm; height: 200mm; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
+                .print-btn { display: none !important; }
+                #print-wrapper { width: 100%; box-sizing: border-box; }
+                
+                /* ★ 印刷時のみ適用される「超特大」スタイル */
+                .team-print-card { border: 4px solid #2c3e50 !important; border-radius: 12px; width: 100%; box-sizing: border-box; padding: 25px; margin: 0 !important; }
+                .team-print-card * { line-height: 1.3 !important; }
+                .team-print-card .p-title { font-size: 2.2rem !important; font-weight: 900 !important; }
+                .team-print-card .p-val { font-size: 2rem !important; }
+                .team-print-card .p-diff { font-size: 3.2rem !important; }
+                .team-print-card table th, .team-print-card table td { font-size: 1.4rem !important; padding: 15px !important; }
+                .team-print-card .p-partner-card { font-size: 1.2rem !important; padding: 15px !important; }
+                .team-print-card .p-partner-title { font-size: 1.4rem !important; }
+                .team-print-card .p-partner-diff { font-size: 1.6rem !important; }
+            </style>
+        </head><body><div id="print-wrapper">${printContent}</div>
+            <script>
+                window.onload = function() {
+                    setTimeout(function() {
+                        const wrapper = document.getElementById('print-wrapper');
+                        const maxH = 740; // 印刷の限界高さ
+                        const currentH = wrapper.scrollHeight;
+                        if (currentH > maxH) wrapper.style.zoom = maxH / currentH; // はみ出る場合のみ自動縮小
+                        window.print(); window.close();
+                    }, 300);
+                };
+            ${endScriptTag}
+        </body></html>
+    `);
+    printWindow.document.close();
+  }
+
+  function getVarianceStyle(diff) {
+      if (diff > 0) return { color: '#e74a3b', prefix: '＋' }; 
+      if (diff < 0) return { color: '#1a73e8', prefix: '▲' }; 
+      return { color: '#95a5a6', prefix: '±' };
+  }
+
+  // --- コメントポップアップ処理 ---
+  function openSoukaiCommentModal(period, pCmtKey, displayName, historyParam, currentCmtParam, monthlyParam) {
+    document.getElementById('soukai-modal-period').value = period;
+    document.getElementById('soukai-modal-key').value = pCmtKey;
+    document.getElementById('soukai-modal-title').innerText = displayName;
+    
+    const historyArr = JSON.parse(decodeURIComponent(historyParam));
+    const selectEl = document.getElementById('soukai-modal-history');
+    selectEl.innerHTML = '<option value="">過去の履歴を参照（クリックで追記）...</option>';
+    if (historyArr && historyArr.length > 0) {
+       historyArr.forEach(txt => {
+           const opt = document.createElement('option');
+           const match = txt.match(/^\[(.*?)\]\s(.*)$/);
+           if(match) {
+               opt.value = match[2]; opt.innerText = txt.substring(0, 45) + '...';
+           } else {
+               opt.value = txt; opt.innerText = txt.substring(0, 45) + '...';
+           }
+           selectEl.appendChild(opt);
+       });
+    }
+
+    const monthlyData = JSON.parse(decodeURIComponent(monthlyParam));
+    const unit = parseInt(document.getElementById('displayUnit').value) || 1000;
+    let thHtml = ''; let bHtml = ''; let aHtml = ''; let dHtml = '';
+    const months = Object.keys(monthlyData).sort();
+    
+    if(months.length > 0) {
+        months.forEach(ym => {
+            const b = monthlyData[ym].b; const a = monthlyData[ym].a; const diff = a - b;
+            const mStr = ym.length === 6 ? parseInt(ym.substring(4,6)) + '月' : ym;
+            const pStyle = getVarianceStyle(diff);
+            
+            thHtml += `<th style="text-align:right; padding:10px 8px; border-bottom:2px solid #dce1e7; background:#fff; color:#2c3e50; font-size:1rem;">${mStr}</th>`;
+            bHtml += `<td style="text-align:right; padding:10px 8px; border-bottom:1px solid #eee; color:#7f8c8d; font-weight:bold;">${formatMoney(b, unit)}</td>`;
+            aHtml += `<td style="text-align:right; padding:10px 8px; border-bottom:1px solid #eee; color:#34495e; font-weight:bold;">${formatMoney(a, unit)}</td>`;
+            dHtml += `<td style="text-align:right; padding:10px 8px; border-bottom:1px dashed #eee; color:${pStyle.color}; font-weight:900;">${pStyle.prefix}${formatMoney(Math.abs(diff), unit)}</td>`;
+        });
+        
+        const tableHtml = `
+            <div style="font-size:1.05rem; color:#2c3e50; font-weight:900; margin-bottom:15px; display:flex; align-items:center;">
+              <span class="material-icons" style="margin-right:5px; color:var(--primary);">insights</span> 月別推移 (単位: ${unit === 1000 ? '千円' : '円'})
+            </div>
+            <table style="width:100%; border-collapse:collapse; font-size:0.95rem; background:#fff; border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,0.02);">
+                <tr><th style="text-align:left; padding:10px 15px; border-bottom:2px solid #dce1e7; background:#fff; color:#888;"></th>${thHtml}</tr>
+                <tr><td style="text-align:left; padding:10px 15px; border-bottom:1px solid #eee; font-weight:bold; color:#7f8c8d;">予算</td>${bHtml}</tr>
+                <tr><td style="text-align:left; padding:10px 15px; border-bottom:1px solid #eee; font-weight:bold; color:#7f8c8d;">実績</td>${aHtml}</tr>
+                <tr><td style="text-align:left; padding:10px 15px; border-bottom:1px dashed #eee; font-weight:900; color:#34495e;">差異</td>${dHtml}</tr>
+            </table>
+        `;
+        document.getElementById('soukai-modal-monthly-table').innerHTML = tableHtml;
+    } else {
+        document.getElementById('soukai-modal-monthly-table').innerHTML = '<div style="color:#aaa; font-size:0.95rem; text-align:center; padding:30px;">対象となる月別データがありません</div>';
+    }
+
+    const maxLen = (globalPackage && globalPackage.weatherSettings && globalPackage.weatherSettings.maxLength) ? globalPackage.weatherSettings.maxLength : 40;
+    const txtArea = document.getElementById('soukai-modal-textarea');
+    txtArea.maxLength = maxLen; 
+    txtArea.value = decodeURIComponent(currentCmtParam) || '';
+    
+    updateCharCount();
+    txtArea.addEventListener('input', updateCharCount);
+    document.getElementById('soukai-modal-overlay').style.display = 'flex';
+  }
+
+  function updateCharCount() {
+    const maxLen = document.getElementById('soukai-modal-textarea').maxLength;
+    const currentLen = document.getElementById('soukai-modal-textarea').value.length;
+    document.getElementById('soukai-modal-char-count').innerText = `${currentLen} / ${maxLen}`;
+  }
+
+  // ★ 修正: 選択したら「追記」するように動作を変更
+  function copyHistoryToTextarea() {
+    const selectEl = document.getElementById('soukai-modal-history');
+    const val = selectEl.value;
+    if (val) { 
+      const txtArea = document.getElementById('soukai-modal-textarea');
+      if (txtArea.value.trim() !== '') {
+          txtArea.value += '\\n' + val; // 既存の文字があれば改行して追加
+      } else {
+          txtArea.value = val;
+      }
+      updateCharCount();
+      selectEl.selectedIndex = 0; // 選択をリセット
+    }
+  }
+
+  function closeSoukaiCommentModal() {
+    document.getElementById('soukai-modal-overlay').style.display = 'none';
+  }
+
+  function saveSoukaiComment() {
+    const period = document.getElementById('soukai-modal-period').value;
+    const pCmtKey = document.getElementById('soukai-modal-key').value;
+    const text = document.getElementById('soukai-modal-textarea').value;
+    const btn = document.getElementById('soukai-modal-save-btn');
+    const originalText = btn.innerText;
+    
+    btn.innerText = '保存中...'; btn.disabled = true;
+
+    google.script.run.withSuccessHandler(() => {
+      btn.innerText = originalText; btn.disabled = false;
+      if (!globalPackage.reportComments) globalPackage.reportComments = {};
+      globalPackage.reportComments[`${period}_${pCmtKey}`] = text;
+      closeSoukaiCommentModal();
+      renderReportSoukai(globalPackage, globalPackage.subjectMapCache, parseInt(document.getElementById('displayUnit').value));
+    }).withFailureHandler(e => {
+      btn.innerText = originalText; btn.disabled = false; handleGenericError(e, 'saveReportComment');
+    }).saveReportComment(period, pCmtKey, text);
+  }
+
+  // --- メイン描画処理 ---
+  function renderReportSoukai(pkg, subjectMap, unit) {
+    const rankingContainer = document.getElementById('sokai-ranking-container');
+    const perfectContainer = document.getElementById('sokai-perfect-container');
+    const analysisContainer = document.getElementById('sokai-team-analysis');
+    if(!rankingContainer || !perfectContainer || !analysisContainer) return;
+
+    const isPeriod = (typeof currentDashTab !== 'undefined' && currentDashTab === 'period') || (typeof currentReportTab !== 'undefined' && currentReportTab === 'period');
+    const rawData = isPeriod ? pkg.cacheData.currentMonthAllSegments : pkg.cacheData.ytdAllSegments;
+    const weather = pkg.weatherSettings || {sunny: 5, cloudy: 10, rainy: 20, sunnyAmt: 0, cloudyAmt: 0, rainyAmt: 0, maxLength: 40};
+    const targetPeriod = pkg.params ? pkg.params.period : 'UNKNOWN';
+
+    if (!rawData || rawData.length === 0) {
+      rankingContainer.innerHTML = '<div style="color:#888; text-align:center; padding:30px;">データがまだ取込管理からインポートされていません。</div>';
+      return;
+    }
+
+    const teams = {}; const perfects = [];
+    const monthlyComments = pkg.comments || {}; const soukaiComments = pkg.reportComments || {}; 
+
+    rawData.forEach(r => {
+      if (r.isPrev || !subjectMap[r.acctName]) return;
+      const tInfo = pkg.teamSettings.find(t => t.teamCd === r.teamCd);
+      if (!tInfo || tInfo.isHidden) return;
+
+      const tCd = r.teamCd;
+      if (!teams[tCd]) teams[tCd] = { cd: tCd, name: tInfo.teamName, b: 0, a: 0, accts: {} };
+      
+      const acct = r.acctName;
+      if (!teams[tCd].accts[acct]) teams[tCd].accts[acct] = { name: acct, b: 0, a: 0, partners: {} };
+      
+      const pKey = r.partnerName || '（取引先なし）';
+      if (!teams[tCd].accts[acct].partners[pKey]) teams[tCd].accts[acct].partners[pKey] = { name: pKey, b: 0, a: 0, history: new Set(), monthly: {} };
+
+      const amt = Number(r.amount) || 0;
+      const isBudget = r.type === '予算' || String(r.type).includes('予算');
+
+      if (isBudget) {
+        teams[tCd].b += amt; teams[tCd].accts[acct].b += amt; teams[tCd].accts[acct].partners[pKey].b += amt;
+      } else {
+        teams[tCd].a += amt; teams[tCd].accts[acct].a += amt; teams[tCd].accts[acct].partners[pKey].a += amt;
+      }
+
+      // ★ 修正: 月別データが存在しないバグの解消 (r.month を参照)
+      if (!r.isPrev) {
+        const ym = r.month || '不明'; // ←ここを確実に拾えるように修正しました！
+        if (ym !== '不明') {
+            if (!teams[tCd].accts[acct].partners[pKey].monthly[ym]) teams[tCd].accts[acct].partners[pKey].monthly[ym] = { b: 0, a: 0 };
+            if (isBudget) teams[tCd].accts[acct].partners[pKey].monthly[ym].b += amt;
+            else teams[tCd].accts[acct].partners[pKey].monthly[ym].a += amt;
+        }
+      }
+      
+      const pMonthlyKey = `${r.segCd}_${acct}__${pKey}`;
+      if (monthlyComments[pMonthlyKey]) {
+          teams[tCd].accts[acct].partners[pKey].history.add(`[月次: ${r.segCd}] ${monthlyComments[pMonthlyKey]}`);
+      }
+    });
+
+    const teamList = [];
+    Object.values(teams).forEach(t => {
+      if (t.b === 0 && t.a === 0) return;
+      t.diff = t.a - t.b;
+      t.diffRatio = t.b > 0 ? Math.abs(t.diff) / t.b : (t.a > 0 ? 1 : 0);
+      
+      const acctList = [];
+      Object.values(t.accts).forEach(act => {
+        act.diff = act.a - act.b; act.diffAbs = Math.abs(act.diff);
+        const rb = Math.round(act.b / unit); const ra = Math.round(act.a / unit);
+        if (rb > 0 && rb === ra) perfects.push({ teamName: t.name, acctName: act.name });
+        if (act.b > 0 || act.a > 0) acctList.push(act);
+      });
+      
+      acctList.sort((a, b) => b.diffAbs - a.diffAbs);
+      t.worst3 = acctList.slice(0, 3);
+      t.others = acctList.slice(3).reduce((acc, curr) => {
+        acc.b += curr.b; acc.a += curr.a; acc.diff += curr.diff; acc.diffAbs += curr.diffAbs; return acc;
+      }, { b: 0, a: 0, diff: 0, diffAbs: 0 });
+      
+      t.totalErrorAbs = acctList.reduce((sum, curr) => sum + curr.diffAbs, 0);
+      teamList.push(t);
+    });
+
+    teamList.sort((a, b) => a.diffRatio - b.diffRatio);
+
+    // --- ランキング 描画 ---
+    let rankHtml = '<div style="display:flex; gap:15px; margin-top:10px;">';
+    const top3 = teamList.slice(0, 3); const colors = ['#f1c40f', '#bdc3c7', '#cd7f32']; 
+    const crownSvg = (color) => `<svg width="40" height="40" viewBox="0 0 24 24" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.15));"><path d="M5 16L3 5L8.5 10L12 4L15.5 10L21 5L19 16H5ZM19 19C19 19.6 18.6 20 18 20H6C5.4 20 5 19.6 5 19V18H19V19Z" fill="${color}"/></svg>`;
+
+    top3.forEach((t, i) => {
+      const pct = (t.diffRatio * 100).toFixed(1);
+      rankHtml += `
+        <div style="flex:1; background:#fff; border:2px solid ${colors[i]}; border-radius:12px; padding:20px 15px; text-align:center; box-shadow:0 4px 8px rgba(0,0,0,0.05); transform: scale(${1.02 - (i*0.02)}); position:relative;">
+          <div style="position:absolute; top:-20px; left:50%; transform:translateX(-50%);">${crownSvg(colors[i])}</div>
+          <div style="font-weight:900; font-size:1.2rem; color:#2c3e50; margin-top:10px; margin-bottom:5px;">${t.name}</div>
+          <div style="font-size:0.8rem; color:#7f8c8d; font-weight:bold;">PLANNING ERROR</div>
+          <div style="font-size:2rem; font-weight:900; color:${colors[i]}; font-family:'Impact', sans-serif;">${pct}%</div>
+        </div>
+      `;
+    });
+    rankingContainer.innerHTML = rankHtml + '</div>';
+
+    let perfHtml = '';
+    if(perfects.length > 0) {
+      perfects.forEach(p => { perfHtml += `<div style="background:#e8fbf3; border:2px solid #1cc88a; padding:10px 20px; border-radius:30px; font-size:1.05rem; color:#1cc88a; font-weight:900; display:flex; align-items:center; gap:8px; box-shadow: 0 2px 6px rgba(28,200,138,0.15); margin:5px;"><svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle; filter:drop-shadow(0 2px 2px rgba(231,76,60,0.3));"><circle cx="12" cy="12" r="11" fill="#ff7675"/><circle cx="12" cy="12" r="8" fill="#fff"/><circle cx="12" cy="12" r="5" fill="#ff7675"/><circle cx="12" cy="12" r="2" fill="#fff"/></svg><span>[${p.teamName}] <span style="color:#2c3e50; font-weight:bold;">${p.acctName}</span> </span></div>`; });
+    } else {
+      perfHtml = '<div style="color:#95a5a6; font-size:0.95rem; padding:15px; background:#f8f9fa; border-radius:8px; width:100%; text-align:center; font-weight:bold;">当期間において、完全予実一致した項目はありませんでした。</div>';
+    }
+    perfectContainer.innerHTML = perfHtml;
+
+    function getWeatherHtml(absPct, absDiff) {
+        const isSunny = absPct <= weather.sunny || (weather.sunnyAmt > 0 && absDiff <= weather.sunnyAmt);
+        const isCloudy = absPct <= weather.cloudy || (weather.cloudyAmt > 0 && absDiff <= weather.cloudyAmt);
+        const isRainy = absPct <= weather.rainy || (weather.rainyAmt > 0 && absDiff <= weather.rainyAmt);
+        if (isSunny) return '<div class="weather-icon sunny" title="晴れ"></div>';
+        if (isCloudy) return '<div class="weather-icon cloudy" title="曇り"></div>';
+        if (isRainy) return '<div class="weather-icon rainy" title="雨"><div class="rain-drops"></div></div>';
+        return '<div class="weather-icon thunder" title="雷雨"><div class="lightning">⚡</div></div>';
+    }
+
+    // --- チーム別 分析 (画面用スマートUI) ---
+    let analysisHtml = '';
+    teamList.forEach(t => {
+       const pct = t.diffRatio * 100;
+       const weatherIcon = getWeatherHtml(pct, Math.abs(t.diff));
+       const tStyle = getVarianceStyle(t.diff);
+
+       analysisHtml += `
+         <div id="print_card_${t.cd}" class="team-print-card" style="background:#fff; border:1px solid #e4e6ef; border-radius:12px; padding:25px; margin-bottom:40px; box-shadow:0 4px 12px rgba(0,0,0,0.04); border-top: 6px solid #2c3e50;">
+           
+           <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 2px dashed #f1f3f5; padding-bottom: 20px; margin-bottom: 20px;">
+             <div class="p-title" style="font-weight:900; font-size:1.6rem; color:#2c3e50; display:flex; align-items:center; gap:15px;">
+               ${weatherIcon} <span style="letter-spacing: 1px;">${t.name}</span>
+             </div>
+             
+             <div style="display:flex; align-items:center; gap:25px;">
+               <div style="display:flex; gap:25px; text-align:right;">
+                 <div>
+                   <div style="font-size:1rem; color:#95a5a6; font-weight:bold; margin-bottom:5px;">予算</div>
+                   <div class="p-val" style="font-size:1.6rem; font-weight:900; color:#34495e; font-family: 'Arial', sans-serif;">${formatMoney(t.b, unit)}</div>
+                 </div>
+                 <div>
+                   <div style="font-size:1rem; color:#95a5a6; font-weight:bold; margin-bottom:5px;">実績</div>
+                   <div class="p-val" style="font-size:1.6rem; font-weight:900; color:#34495e; font-family: 'Arial', sans-serif;">${formatMoney(t.a, unit)}</div>
+                 </div>
+               </div>
+               
+               <div style="background:#fcfcfc; padding:15px 25px; border-radius:12px; border:3px solid ${tStyle.color}; text-align:center; min-width: 150px; box-shadow:0 2px 6px rgba(0,0,0,0.03);">
+                 <div style="font-size:1.1rem; color:${tStyle.color}; font-weight:bold; margin-bottom:5px;">総差異</div>
+                 <div class="p-diff" style="font-weight:900; font-size:2.4rem; color:${tStyle.color}; line-height:1; font-family: 'Arial', sans-serif; letter-spacing:-1px;">
+                   ${tStyle.prefix}${formatMoney(Math.abs(t.diff), unit)}
+                 </div>
+               </div>
+               
+               <button class="btn print-btn" style="background:#fff; color:#2c3e50; border:2px solid #2c3e50; padding:10px; border-radius:8px; font-size:1rem; font-weight:bold; display:flex; flex-direction:column; align-items:center; gap:5px;" onclick="printSokaiTeam('${t.cd}')">
+                 <span class="material-icons" style="font-size:1.5rem;">picture_as_pdf</span>出力
+               </button>
+             </div>
+           </div>
+           
+           <div style="margin-top:20px; overflow-x:auto;">
+             <table style="width:100%; border-collapse:collapse; font-size:1.1rem; background:#fff; border-radius:8px; overflow:hidden;">
+               <thead style="background:#f8f9fa; color:#34495e;">
+                 <tr>
+                   <th style="padding:12px 15px; text-align:left; border-bottom:3px solid #e4e6ef; width:35%; font-weight:900; font-size:1.1rem;">勘定科目</th>
+                   <th style="padding:12px 15px; text-align:right; border-bottom:3px solid #e4e6ef; width:15%; font-weight:900; font-size:1.1rem;">予算</th>
+                   <th style="padding:12px 15px; text-align:right; border-bottom:3px solid #e4e6ef; width:15%; font-weight:900; font-size:1.1rem;">実績</th>
+                   <th style="padding:12px 15px; text-align:right; border-bottom:3px solid #e4e6ef; width:15%; font-weight:900; font-size:1.1rem;">差異額</th>
+                   <th style="padding:12px 15px; text-align:right; border-bottom:3px solid #e4e6ef; width:20%; font-weight:900; font-size:1.1rem;">総誤差比 (影響度)</th>
+                 </tr>
+               </thead>
+               <tbody>
+       `;
+
+       if(t.worst3 && t.worst3.length > 0) {
+         t.worst3.forEach(w => {
+            const wStyle = getVarianceStyle(w.diff);
+            let pArr = Object.values(w.partners).map(p => { p.diff = p.a - p.b; return p; }).filter(p => Math.abs(Math.round(p.diff / unit)) > 0);
+            
+            let totalPartnerDiffAbs = 0;
+            pArr.forEach(p => { totalPartnerDiffAbs += Math.abs(p.diff); });
+            
+            let partnerCards = ''; let othersHtml = '';
+            
+            if(pArr.length > 0) {
+                pArr.sort((a,b) => Math.abs(b.diff) - Math.abs(a.diff));
+                pArr.slice(0, 3).forEach(p => {
+                    const pStyle = getVarianceStyle(p.diff);
+                    let partnerPct = totalPartnerDiffAbs !== 0 ? Math.round((Math.abs(p.diff) / totalPartnerDiffAbs) * 100) : 0;
+                    
+                    const pCmtKey = `${t.cd}_${w.name}__${p.name}`;
+                    const currentSoukaiComment = soukaiComments[`${targetPeriod}_${pCmtKey}`] || '';
+                    
+                    Object.keys(soukaiComments).forEach(sKey => {
+                        if (sKey.endsWith('_' + pCmtKey) && sKey !== `${targetPeriod}_${pCmtKey}`) {
+                            const pName = sKey.replace('_' + pCmtKey, '');
+                            p.history.add(`[過去期: ${pName}] ${soukaiComments[sKey]}`);
+                        }
+                    });
+
+                    const displayName = `${p.name} (${w.name})`.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+                    const historyParam = encodeURIComponent(JSON.stringify(Array.from(p.history)));
+                    const monthlyParam = encodeURIComponent(JSON.stringify(p.monthly));
+                    const currentCmtParam = encodeURIComponent(currentSoukaiComment);
+
+                    let pCmtHtml = currentSoukaiComment ? `<div style="margin-top:12px; padding-top:12px; border-top:1px dashed #e4e6ef; font-size:1rem; color:#2c3e50; font-weight:bold; line-height:1.5;"><span class="material-icons" style="font-size:1.1rem; color:var(--primary); vertical-align:middle; margin-right:4px;">campaign</span>${currentSoukaiComment}</div>` : `<div style="margin-top:12px; padding-top:12px; border-top:1px dashed #e4e6ef; font-size:0.9rem; color:#aaa; font-style:italic;">クリックして報告事項を編集...</div>`;
+
+                    partnerCards += `
+                      <div class="p-partner-card" onclick="openSoukaiCommentModal('${targetPeriod}', '${pCmtKey}', '${displayName}', '${historyParam}', '${currentCmtParam}', '${monthlyParam}')" 
+                           style="flex: 1; min-width: 250px; background: #fff; border: 2px solid #dce1e7; border-radius: 10px; padding: 15px; box-shadow: 0 2px 6px rgba(0,0,0,0.04); cursor:pointer; transition:0.2s;" onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='#dce1e7'">
+                        <div class="p-partner-title" style="font-weight: 900; color: #34495e; font-size: 1.1rem; margin-bottom: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${p.name}">${p.name}</div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #eee; padding-bottom: 8px; margin-bottom: 8px;">
+                          <span style="font-size:0.9rem; color:#888; font-weight:bold;">差異額:</span>
+                          <span class="p-partner-diff" style="color: ${pStyle.color}; font-weight: 900; font-size: 1.3rem;">${pStyle.prefix}${formatMoney(Math.abs(p.diff), unit)}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                          <span style="font-size:0.9rem; color:#888; font-weight:bold;">誤差割合:</span>
+                          <span style="color: #95a5a6; font-size: 1.1rem; font-weight:900;">${partnerPct}%</span>
+                        </div>
+                        ${pCmtHtml}
+                      </div>
+                    `;
+                });
+                if(pArr.length > 3) othersHtml = `<div style="flex: 0 0 auto; display: flex; align-items: center; justify-content: center; background: #f8f9fa; border: 2px dashed #ccc; border-radius: 10px; padding: 15px 25px; color: #7f8c8d; font-size: 1.1rem; font-weight: 900;">他 ${pArr.length - 3} 社</div>`;
+            }
+
+            const errorWeight = t.totalErrorAbs > 0 ? ((w.diffAbs / t.totalErrorAbs) * 100).toFixed(1) : '0.0';
+
+            analysisHtml += `
+              <tr>
+                <td style="padding:15px; font-weight:900; color:#2c3e50; border-bottom:none; font-size:1.15rem;">${w.name}</td>
+                <td style="padding:15px; text-align:right; color:#555; border-bottom:none; font-weight:bold; font-size:1.15rem;">${formatMoney(w.b, unit)}</td>
+                <td style="padding:15px; text-align:right; color:#555; border-bottom:none; font-weight:bold; font-size:1.15rem;">${formatMoney(w.a, unit)}</td>
+                <td style="padding:15px; text-align:right; color:${wStyle.color}; font-weight:900; border-bottom:none; font-size:1.25rem;">${wStyle.prefix}${formatMoney(Math.abs(w.diff), unit)}</td>
+                <td style="padding:15px; text-align:right; font-weight:900; color:#7f8c8d; font-family:monospace; border-bottom:none; font-size:1.15rem;">${errorWeight}%</td>
+              </tr>
+              <tr style="border-bottom:3px solid #e4e6ef;">
+                <td colspan="5" style="padding:0 15px 25px 15px; border-top:none;">
+                   <div style="background:#fcfcfc; border-radius:10px; padding:20px; border:1px solid #f1f3f5;">
+                     <div style="font-size:1rem; font-weight:900; color:#7f8c8d; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+                       <span class="material-icons" style="font-size:1.2rem; color:#9b59b6;">label</span> 取引先別の要因 (上位3社) <span style="font-size:0.9rem; color:#aaa; font-weight:normal; margin-left:10px;">※クリックで報告コメントを編集できます</span>
+                     </div>
+                     <div style="display:flex; gap:20px; overflow-x:auto; padding-bottom:10px;">
+                       ${partnerCards}
+                       ${othersHtml}
+                     </div>
+                   </div>
+                </td>
+              </tr>
+            `;
+         });
+       }
+       
+       if(t.others && (t.others.b > 0 || t.others.a > 0)) {
+         const othersWeight = t.totalErrorAbs > 0 ? ((t.others.diffAbs / t.totalErrorAbs) * 100).toFixed(1) : '0.0';
+         const oStyle = getVarianceStyle(t.others.diff);
+         analysisHtml += `
+           <tr style="background:#fcfdfd; border-bottom:1px solid #e4e6ef; color:#7f8c8d; font-style:italic;">
+             <td style="padding:15px; font-weight:bold; font-size:1.05rem;">その他科目 合計</td>
+             <td style="padding:15px; text-align:right; font-size:1.05rem;">${formatMoney(t.others.b, unit)}</td>
+             <td style="padding:15px; text-align:right; font-size:1.05rem;">${formatMoney(t.others.a, unit)}</td>
+             <td style="padding:15px; text-align:right; font-weight:bold; font-size:1.05rem; color:${oStyle.color};">${oStyle.prefix}${formatMoney(Math.abs(t.others.diff), unit)}</td>
+             <td style="padding:15px; text-align:right; font-family:monospace; font-weight:bold; font-size:1.05rem;">${othersWeight}%</td>
+           </tr>
+         `;
+       }
+       
+       const totalStyle = getVarianceStyle(t.diff);
+       analysisHtml += `
+           <tr style="background:#f4ebf9; color:#2c3e50; font-weight:900; font-size:1.15rem; border-top:2px solid #2c3e50;">
+             <td style="padding:15px; display:flex; align-items:center;">
+               <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="margin-right:8px; transform:rotate(-10deg); filter:drop-shadow(0 2px 3px rgba(142,68,173,0.3));">
+                 <path d="M4 20L9 14L14 18L7 22L4 20Z" fill="#f1c40f" stroke="#d4ac0d" stroke-width="1" stroke-linejoin="round"/>
+                 <path d="M9 14L20 3L22 7L14 18L9 14Z" fill="#e74c3c" stroke="#c0392b" stroke-width="1" stroke-linejoin="round"/>
+                 <circle cx="19" cy="11" r="2" fill="#3498db"/>
+                 <circle cx="15" cy="4" r="2" fill="#2ecc71"/>
+                 <circle cx="21" cy="6" r="1.5" fill="#9b59b6"/>
+                 <circle cx="12" cy="6" r="1" fill="#f1c40f"/>
+               </svg>
+               チーム合計
+             </td>
+             <td style="padding:15px; text-align:right;">${formatMoney(t.b, unit)}</td>
+             <td style="padding:15px; text-align:right;">${formatMoney(t.a, unit)}</td>
+             <td style="padding:15px; text-align:right; color:${totalStyle.color}; font-weight:900; font-size:1.25rem;">${totalStyle.prefix}${formatMoney(Math.abs(t.diff), unit)}</td>
+             <td style="padding:15px; text-align:right; font-family:monospace;">100.0%</td>
+           </tr>
+               </tbody>
+             </table>
+           </div>
+         </div>
+       `;
+    });
+    
+    analysisContainer.innerHTML = analysisHtml;
+  }
+</script>

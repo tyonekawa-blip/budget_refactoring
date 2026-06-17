@@ -1,0 +1,101 @@
+<div id="view-close" class="view">
+  <div class="card" style="max-width: 500px; margin-bottom: 20px;">
+    <h3 class="card-title">初期年度の設定</h3>
+    <select id="settingCurrentYear">
+      <option value="2026">FY2026</option>
+      <option value="2025">FY2025</option>
+      <option value="2024">FY2024</option>
+    </select>
+    <button class="btn" style="width: 100%; margin-top:15px;" onclick="executeYearUpdate()">年度を更新</button>
+  </div>
+
+  <div class="card">
+    <h3 class="card-title">月次報告の確定（締め処理）</h3>
+    <p style="font-size:0.85rem; color:#666;">
+      月次報告を確定（ロック）します。締まった月のデータはインポート（上書き）や各画面でのコメント保存ができなくなります。
+    </p>
+    
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom: 15px;">
+      <select id="close-year-select" class="form-control" style="width:150px; font-weight:bold; padding:8px; border-radius:4px; border:1px solid #ccc;" onchange="loadCloseStatuses()">
+        <option value="2024">FY2024 (24年10月〜)</option>
+        <option value="2025" selected>FY2025 (25年10月〜)</option>
+        <option value="2026">FY2026 (26年10月〜)</option>
+      </select>
+      <button class="btn" style="background:#f8f9fa; color:#333; border:1px solid #ccc;" onclick="loadCloseStatuses()">
+        <span class="material-icons" style="vertical-align:middle; font-size:1rem;">refresh</span> 状況を更新
+      </button>
+    </div>
+
+    <table style="width:100%; border-collapse:collapse; background:#fff; border:1px solid #e4e6ef; border-radius:6px; overflow:hidden;">
+      <thead style="background:#f8f9fa;">
+        <tr>
+          <th style="padding:12px; border-bottom:2px solid #ddd; text-align:left; color:#555;">対象月度</th>
+          <th style="padding:12px; border-bottom:2px solid #ddd; text-align:center; color:#555;">状態</th>
+          <th style="padding:12px; border-bottom:2px solid #ddd; text-align:center; color:#555;">操作</th>
+        </tr>
+      </thead>
+      <tbody id="close-status-tbody">
+        <tr><td colspan="3" style="text-align:center; padding:30px; color:#888;">「状況を更新」ボタンを押してください</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  // ==========================================
+  // 月次締め（確定）処理用ロジック
+  // ==========================================
+
+  function loadCloseStatuses() {
+    const year = document.getElementById('close-year-select').value;
+    const tbody = document.getElementById('close-status-tbody');
+    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:30px; color:#888;">取得中...</td></tr>';
+    
+    runGasAsync('getCloseStatuses', year).then(statuses => {
+      tbody.innerHTML = '';
+      for(let i = 0; i < 12; i++){
+        let y = parseInt(year); 
+        let m = 10 + i;
+        if(m > 12){ y++; m -= 12; }
+        
+        const ym = `${y}${m.toString().padStart(2, '0')}`;
+        const isClosed = statuses[ym] === true;
+        
+        const statusBadge = isClosed 
+          ? `<span style="background:#e74a3b; color:#fff; padding:4px 12px; border-radius:20px; font-size:0.85rem; font-weight:bold;"><span class="material-icons" style="font-size:0.9rem; vertical-align:middle; margin-right:3px;">lock</span>確定済</span>`
+          : `<span style="background:#1cc88a; color:#fff; padding:4px 12px; border-radius:20px; font-size:0.85rem; font-weight:bold;"><span class="material-icons" style="font-size:0.9rem; vertical-align:middle; margin-right:3px;">lock_open</span>入力可能</span>`;
+          
+        const actionBtn = isClosed
+          ? `<button class="btn" style="background:#fff; color:#666; border:1px solid #ccc; padding:4px 10px; font-size:0.85rem;" onclick="toggleClose('${ym}', false)">ロック解除</button>`
+          : `<button class="btn" style="background:#e74a3b; color:#fff; border:none; padding:4px 10px; font-size:0.85rem;" onclick="toggleClose('${ym}', true)">月次を締める</button>`;
+
+        tbody.innerHTML += `
+          <tr style="border-bottom:1px solid #eee;">
+            <td style="padding:12px; font-weight:bold; color:#333;">${y}年${m}月度</td>
+            <td style="padding:12px; text-align:center;">${statusBadge}</td>
+            <td style="padding:12px; text-align:center;">${actionBtn}</td>
+          </tr>
+        `;
+      }
+    }).catch(e => { 
+      tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding:30px; color:red;">エラー: ${e.message}</td></tr>`; 
+    });
+  }
+
+  function toggleClose(ym, lock) {
+    const action = lock ? "締め（確定・ロック）" : "ロック解除";
+    if(!confirm(`${ym.substring(0,4)}年${ym.substring(4,6)}月度を ${action} しますか？`)) return;
+    
+    showLoading(`月次処理を更新中...`);
+    runGasAsync('toggleCloseStatus', ym, lock).then(res => {
+      hideLoading();
+      if(res.error) alert("エラー: " + res.error);
+      else { 
+        alert(res.msg); 
+        loadCloseStatuses(); 
+      }
+    }).catch(e => handleGenericError(e, 'toggleCloseStatus'));
+  }
+
+  // ※既存の executeYearUpdate は js_settings_master.html などの別ファイルに定義されている前提でそのまま動作します
+</script>

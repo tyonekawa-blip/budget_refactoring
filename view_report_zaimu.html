@@ -1,0 +1,88 @@
+<div id="view-report_zaimu" class="view">
+  <div class="card" style="border-top: 4px solid #8e44ad;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+      <h3 class="card-title" style="color: #8e44ad; border: none; margin: 0;">
+        <span class="material-icons" style="vertical-align:middle; font-size:1.6rem; margin-right:5px;">trending_up</span> 財務戦略会議用レポート（投資・主要コスト分析）
+      </h3>
+      <button class="btn" style="background:#fff; color:#8e44ad; border: 1px solid #8e44ad;" onclick="window.print()">
+        <span class="material-icons">print</span> 印刷 / PDF
+      </button>
+    </div>
+    <p style="font-size: 0.9rem; color: #666; margin-bottom: 25px;">経営陣向けに、システム費や外注費などの「戦略的投資・重要コスト」の消化状況と、取引先別の費用対効果を報告します。</p>
+
+    <div class="import-tabs" style="margin-bottom: 20px;">
+      <div id="zaimu-tab-report" class="import-tab active" onclick="switchZaimuTab('report')">
+        <span class="material-icons" style="vertical-align:middle; font-size:1.2rem;">assessment</span> レポート表示
+      </div>
+      <div id="zaimu-tab-settings" class="import-tab" onclick="switchZaimuTab('settings')">
+        <span class="material-icons" style="vertical-align:middle; font-size:1.2rem;">settings</span> 財務レポート 表示設定
+      </div>
+    </div>
+
+    <div id="zaimu-content-report">
+      <div style="margin-top: 20px;">
+        <h4 style="border-bottom: 2px solid #f4ebf9; padding-bottom: 5px; color: #333; display:flex; align-items:center; gap:5px;">
+          <span class="material-icons" style="color:#8e44ad;">lightbulb</span> 戦略的投資・重要コストの全社消化状況
+        </h4>
+        <div id="zaimu-investment-container" style="margin-bottom: 30px;"></div>
+      </div>
+
+      <div style="margin-top: 20px;">
+        <h4 style="border-bottom: 2px solid #f4ebf9; padding-bottom: 5px; color: #333; display:flex; align-items:center; gap:5px;">
+          <span class="material-icons" style="color:#8e44ad;">handshake</span> 取引先別の実績状況と利用チーム
+        </h4>
+        <p style="font-size: 0.8rem; color: #888;">※予算があるにも関わらず実績がない取引先は、代替先利用の検討対象として黄色で強調表示されます。</p>
+        <div id="zaimu-partner-container" style="display:flex; flex-direction:column; gap: 15px; margin-top: 15px;"></div>
+      </div>
+    </div>
+
+    <div id="zaimu-content-settings" style="display:none; background:#f8f9fa; padding:20px; border-radius:8px; border:1px solid #eee;">
+      
+      <div style="margin-bottom: 25px;">
+        <label style="font-weight:bold; color:#555;">① 戦略的投資・重要コストとして抽出する「勘定科目」</label>
+        <p style="font-size:0.85rem; color:#888; margin:5px 0;">「勘定科目 PL表示設定」で表示対象（TRUE）となっている科目から、レポートの対象としたい科目にチェックを入れてください。</p>
+        
+        <div style="position: relative; max-width: 400px; margin-top: 10px;">
+          <span class="material-icons" style="position: absolute; left: 10px; top: 10px; color: #aaa; font-size: 1.1rem;">search</span>
+          <input type="text" id="zaimu-subject-search" onkeyup="filterZaimuSubjects()" placeholder="科目を検索..." style="box-sizing: border-box; width: 100%; padding: 8px 10px 8px 35px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem;">
+        </div>
+
+        <div id="zaimu-subject-checkboxes" style="display:flex; flex-wrap:wrap; gap:10px; margin-top:15px; max-height:250px; overflow-y:auto; padding:15px; border:1px solid #ddd; background:#fff; border-radius:6px;">
+        </div>
+      </div>
+
+      <div style="margin-bottom: 25px;">
+        <label style="font-weight:bold; color:#555;">② 取引先別 予実差異の表示範囲（絶対値）</label>
+        <p style="font-size:0.85rem; color:#888; margin:5px 0;">予実差異額がこの範囲に収まる取引先のみをピックアップします（単位: 円）。空白の場合は制限なしとなります。</p>
+        <div style="display:flex; align-items:center; gap:10px; margin-top:10px;">
+          <input type="number" id="zaimu-diff-from" class="form-control" style="width:150px;" placeholder="下限 (例: 0)">
+          <span>〜</span>
+          <input type="number" id="zaimu-diff-to" class="form-control" style="width:150px;" placeholder="上限 (例: 99999999)">
+        </div>
+      </div>
+
+      <button class="btn" style="background:#8e44ad; margin-bottom: 30px;" onclick="saveZaimuSettingsBtn()">
+        <span class="material-icons">save</span> 設定を保存して再描画
+      </button>
+
+      <div style="border-top: 1px solid #ddd; padding-top: 20px;">
+        <h4 style="margin-top: 0; color: #333;">重要科目・表示設定の CSV連携</h4>
+        <p style="font-size:0.85rem; color:#666; margin-bottom:15px;">スプレッドシートの「html重要科目・表示設定」シートと直接データをやり取りします。</p>
+        
+        <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 10px;">
+          <input type="file" id="zaimu-csv-file" accept=".csv" style="font-size: 0.9rem;" />
+          <button class="btn" style="background:#4CAF50;" onclick="importZaimuCsvBtn()">
+            <span class="material-icons">upload_file</span> CSVをインポート
+          </button>
+        </div>
+        
+        <div style="margin-top: 15px;">
+          <button class="btn" style="background:#2196F3;" onclick="exportZaimuCsvBtn()">
+            <span class="material-icons">download</span> 現在の設定をCSVでダウンロード
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>

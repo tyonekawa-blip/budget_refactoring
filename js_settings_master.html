@@ -1,0 +1,207 @@
+<script>
+  // ==========================================
+  // 設定系ロジック 1: マスタ・システム設定・締め
+  // ==========================================
+
+  // --- 実績データ表示設定 ---
+  function loadActualSettings() {
+    try {
+      const yearEl = document.getElementById('actualSettingYear');
+      const year = yearEl ? yearEl.value : (masterData.currentYear || '2025');
+      const tbody = document.getElementById('act-settings-tbody');
+      if(!tbody) return;
+      tbody.innerHTML = '<tr><td colspan="2" style="text-align:center; padding:30px; color:#888; font-weight:bold;">状況を取得中...</td></tr>';
+      
+      google.script.run.withSuccessHandler(res => {
+        hideLoading();
+        try {
+          if(res && res.error) { tbody.innerHTML = `<tr><td colspan="2" style="color:red; text-align:center;">エラーが発生しました: ${res.error}</td></tr>`; return; }
+          if(!res || !res.monthList) { tbody.innerHTML = '<tr><td colspan="2" style="color:red; text-align:center;">データが空です</td></tr>'; return; }
+          tbody.innerHTML = '';
+          res.monthList.forEach(ym => {
+            const setting = res.actualSettings[ym] || '確定';
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${ym.substring(0,4)}年${ym.substring(4,6)}月</td>
+              <td>
+                <label style="margin-right:15px; cursor:pointer;"><input type="radio" name="act_${ym}" value="速報" ${setting === '速報' ? 'checked' : ''}> 速報値</label>
+                <label style="cursor:pointer;"><input type="radio" name="act_${ym}" value="確定" ${setting === '確定' ? 'checked' : ''}> 確定値</label>
+              </td>`;
+            tbody.appendChild(tr);
+          });
+        } catch(e) { tbody.innerHTML = `<tr><td colspan="2" style="color:red; text-align:center;">表示処理エラー: ${e.message}</td></tr>`; }
+      }).withFailureHandler(e => { tbody.innerHTML = `<tr><td colspan="2" style="color:red; text-align:center;">通信エラー: ${e.message}</td></tr>`; }).getSettingsData(year);
+    } catch(e) { handleGenericError(e, 'loadActualSettings'); }
+  }
+
+  function saveActualSettingsBtn() {
+    try {
+      const yearEl = document.getElementById('actualSettingYear');
+      const year = yearEl ? yearEl.value : (masterData.currentYear || '2025');
+      const result = {};
+      for(let i=0; i<12; i++){
+        let y = parseInt(year); let m = 10 + i; if(m > 12){ y++; m -= 12; }
+        const ym = `${y}${m.toString().padStart(2, '0')}`;
+        const radios = document.getElementsByName('act_' + ym);
+        let val = '確定';
+        for(let j=0; j<radios.length; j++){ if(radios[j].checked){ val = radios[j].value; break; } }
+        result[ym] = val;
+      }
+      showLoading("設定を保存しています...");
+      google.script.run.withSuccessHandler(() => { alert('保存しました。'); executeProcess(); }).withFailureHandler(e => handleGenericError(e, 'saveActualSettings')).saveActualSettings(result);
+    } catch(e) { handleGenericError(e, 'saveActualSettingsBtn'); }
+  }
+
+  // --- 勘定科目 PL表示設定 ---
+  // ★ 安全な手動ロード関数に変更しました
+  function loadSubjectSettings() {
+    const tbody = document.getElementById('sub-settings-tbody');
+    if(!tbody) return;
+    
+    if (typeof globalPackage !== 'undefined' && globalPackage && globalPackage.subjects) {
+      tbody.innerHTML = '';
+      globalPackage.subjects.forEach(s => {
+        const isChecked = globalPackage.subjectSettings && globalPackage.subjectSettings[s.cd] !== undefined ? globalPackage.subjectSettings[s.cd] : true;
+        tbody.innerHTML += `
+          <tr>
+            <td style="text-align:center;"><input type="checkbox" class="sub-chk" id="chk_sub_${s.cd}" value="${s.cd}" ${isChecked ? 'checked' : ''}></td>
+            <td data-cd="${s.cd}">${s.name}</td>
+            <td>${s.desc || ''}</td>
+          </tr>
+        `;
+      });
+    } else {
+      tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:#888;">データ取得のため、一度ダッシュボード等で「画面に表示」を押してください。</td></tr>`;
+    }
+  }
+
+  // ★ タブ切り替え時などに安全に呼び出すためのリスナー
+  document.addEventListener('click', function(e) {
+      if(e.target && e.target.closest('[data-menu="settings"]')) {
+          setTimeout(loadSubjectSettings, 300);
+      }
+  });
+
+  function filterSubjects() {
+    const input = document.getElementById('subjectSearch').value.toUpperCase();
+    const rows = document.querySelectorAll('#sub-settings-tbody tr');
+    rows.forEach(tr => {
+      const name = tr.cells[1].innerText.toUpperCase();
+      const desc = tr.cells[2].innerText.toUpperCase();
+      tr.style.display = (name.indexOf(input) > -1 || desc.indexOf(input) > -1) ? '' : 'none';
+    });
+  }
+
+  function exportSubjectSettings() {
+    let csv = "科目CD,勘定科目名,内容・特記,PL対象(TRUE/FALSE)\n";
+    document.querySelectorAll('#sub-settings-tbody tr').forEach(tr => {
+      const isChecked = tr.querySelector('input[type="checkbox"]').checked;
+      csv += `${tr.cells[1].dataset.cd},"${tr.cells[1].innerText}","${tr.cells[2].innerText}",${isChecked}\n`;
+    });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "科目PL設定.csv";
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+  }
+
+  function importSubjectSettings(event) {
+    const file = event.target.files[0]; if (!file) return;
+    showLoading("CSVデータを読み込んでいます...");
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const text = e.target.result; const rows = text.split('\n');
+      rows.forEach((row, index) => {
+        if (index === 0 || !row.trim()) return;
+        const cols = row.split(',');
+        if (cols.length >= 4) {
+          const cd = cols[0].replace(/"/g, '').trim();
+          const isChecked = cols[3].replace(/"/g, '').trim().toUpperCase() === 'TRUE';
+          const chk = document.getElementById('chk_sub_' + cd);
+          if (chk) chk.checked = isChecked;
+        }
+      });
+      hideLoading(); alert('CSVの読み込みが完了しました。\n※まだ保存されていません。「設定を保存」ボタンを押して確定してください。');
+      event.target.value = ''; 
+    };
+    reader.readAsText(file);
+  }
+
+  function saveSubjectSettings() {
+    try {
+      showLoading("設定を保存しています...");
+      const result = {};
+      document.querySelectorAll('.sub-chk').forEach(chk => { result[chk.value] = chk.checked; });
+      google.script.run.withSuccessHandler(() => { alert('保存しました。'); executeProcess(); }).withFailureHandler(e => handleGenericError(e, 'saveSubjectSettings')).saveSubjectSettings(result);
+    } catch(e) { handleGenericError(e, 'saveSubjectSettings'); }
+  }
+
+  // --- システム年度更新 ---
+  function executeYearUpdate() {
+    const y = document.getElementById('settingCurrentYear').value;
+    if(!confirm(`システムの初期年度を FY${y} に更新しますか？\n※ダッシュボードなどのデフォルト選択年が変更されます。`)) return;
+    showLoading(`年度を FY${y} に更新中...`);
+    google.script.run.withSuccessHandler(() => { alert('年度設定を更新しました。'); location.reload(); }).withFailureHandler(e => handleGenericError(e, 'updateCurrentYear')).updateCurrentYear(y);
+  }
+
+  // ==========================================
+  // 月次報告の確定（締め処理）
+  // ==========================================
+  function setupCloseUI() {
+    if (document.getElementById('close-status-tbody')) {
+      loadCloseStatuses();
+    }
+  }
+
+  function loadCloseStatuses() {
+    const yearEl = document.getElementById('close-year-select');
+    const year = yearEl ? yearEl.value : '2025';
+    const tbody = document.getElementById('close-status-tbody');
+    if(!tbody) return;
+    
+    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:30px; color:#888;">状況を取得中...</td></tr>';
+    
+    google.script.run.withSuccessHandler(res => {
+      if(res && res.error) {
+        tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:red;">エラー: ${res.error}</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = '';
+      res.forEach(s => {
+        const y = s.ym.substring(0,4);
+        const m = s.ym.substring(4,6);
+        const statusBadge = s.isClosed ? '<span style="background:#e3fbed; color:#1cc88a; padding:4px 10px; border-radius:20px; font-size:0.85rem; font-weight:bold;">確定（ロック済）</span>' : '<span style="background:#f8f9fa; color:#888; border:1px solid #ddd; padding:4px 10px; border-radius:20px; font-size:0.85rem;">未確定（入力可能）</span>';
+        
+        const actionBtn = s.isClosed
+          ? `<button class="btn" style="background:#fff; color:#666; border:1px solid #ccc; padding:4px 10px; font-size:0.85rem;" onclick="toggleClose('${s.ym}', false)">ロック解除</button>`
+          : `<button class="btn" style="background:#e74a3b; color:#fff; border:none; padding:4px 10px; font-size:0.85rem;" onclick="toggleClose('${s.ym}', true)">月次を締める</button>`;
+
+        tbody.innerHTML += `
+          <tr style="border-bottom:1px solid #eee;">
+            <td style="padding:12px; font-weight:bold; color:#333;">${y}年${m}月度</td>
+            <td style="padding:12px; text-align:center;">${statusBadge}</td>
+            <td style="padding:12px; text-align:center;">${actionBtn}</td>
+          </tr>
+        `;
+      });
+    }).withFailureHandler(e => {
+      tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:red;">通信エラー: ${e.message}</td></tr>`;
+    }).getCloseStatuses(year);
+  }
+
+  function toggleClose(ym, lock) {
+    const action = lock ? "締め（確定・ロック）" : "ロック解除";
+    if(!confirm(`${ym.substring(0,4)}年${ym.substring(4,6)}月度を ${action} しますか？`)) return;
+    
+    showLoading(`${action} を実行中...`);
+    google.script.run.withSuccessHandler(res => {
+      hideLoading();
+      if(res && res.error) {
+        alert("エラー: " + res.error);
+      } else {
+        alert("処理が完了しました。");
+        loadCloseStatuses();
+      }
+    }).withFailureHandler(e => handleGenericError(e, 'updateCloseStatus')).updateCloseStatus(ym, lock);
+  }
+</script>
