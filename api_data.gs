@@ -16,7 +16,6 @@ function getSystemSettings() {
     const props = PropertiesService.getScriptProperties().getProperties();
     return props;
   } catch (e) {
-    logErrorToSheet(e, 'getSystemSettings');
     return {};
   }
 }
@@ -173,29 +172,26 @@ function getRawDataPackage(targetPeriod, targetTeamCd) {
     const labelFixed = String(config['LABEL_ACTUAL_FIXED'] || "実績(確定)").trim();
     
     // ==========================================
-    // 💡 記号無視の最強マスタマッチング
+    // 💡 ユーザー様発案！最強の「D列完全一致」ロジック
     // ==========================================
     let targetFY = parseInt(config['CURRENT_YEAR']) || new Date().getFullYear(); 
     let reportTargetMonths = [];
     let foundInMaster = false;
     
+    const targetVal = String(targetPeriod).trim(); // 画面から飛んできた値（例: "2025_3Q"）
+    
     const masterSheet = ss.getSheetByName('マスタ_年度');
     if (masterSheet) {
       const mData = masterSheet.getDataRange().getValues();
       
-      // 送られてきた文字から空白とハイフンを抜いて「比較用」にする
-      const cleanTpStr = String(targetPeriod).replace(/[\s\-_ー]/g, '').toLowerCase();
-      
+      // i=1 からループ (1行目はヘッダー想定)
       for (let i = 1; i < mData.length; i++) {
-        const masterKey = String(mData[i][0]);
-        if (!masterKey) continue;
+        const colA = String(mData[i][0]).trim(); // A列: 表示名
+        const colD = String(mData[i][3] || "").trim(); // D列: システム値 (2025_3Qなど)
         
-        // マスタのA列からも空白とハイフンを抜く
-        const cleanMasterKey = masterKey.replace(/[\s\-_ー]/g, '').toLowerCase();
-        
-        // 記号を抜いた状態で一致するか、含まれていればOK！
-        if (cleanTpStr === cleanMasterKey || cleanTpStr.includes(cleanMasterKey) || cleanMasterKey.includes(cleanTpStr)) {
-          targetFY = parseInt(mData[i][1], 10);
+        // D列の値と完全に一致するかチェック！ (D列が空の時のためにA列でもチェック)
+        if (colD === targetVal || colA === targetVal) {
+          targetFY = parseInt(String(mData[i][1]).replace(/\D/g, ''), 10);
           const monthsStr = String(mData[i][2]);
           reportTargetMonths = monthsStr.split(',').map(m => m.trim().replace(/\D/g, '')).filter(m => m.length === 6);
           foundInMaster = true;
@@ -204,8 +200,9 @@ function getRawDataPackage(targetPeriod, targetTeamCd) {
       }
     }
 
+    // マスタに設定がない場合（単月など）の自動フェイルセーフ
     if (!foundInMaster) {
-      const cleanYm = String(targetPeriod).replace(/\D/g, ''); 
+      const cleanYm = targetVal.replace(/\D/g, ''); 
       if (cleanYm.length >= 6) {
         reportTargetMonths = [cleanYm.substring(0, 6)];
         targetFY = getFiscalYear(reportTargetMonths[0]); 
