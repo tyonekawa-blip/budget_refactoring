@@ -1,45 +1,57 @@
 <script>
   window.onload = function() {
     google.script.run.withSuccessHandler(data => {
-      if(data && data.error) { 
-        hideLoading(true);
-        alert("初期データの取得に失敗しました: " + data.error); 
-        return; 
-      }
+      if(data && data.error) { hideLoading(true); alert("初期データの取得に失敗しました: " + data.error); return; }
       masterData = data || {};
       const activeEmail = masterData.activeEmail || '';
       const currentUser = (masterData.users || []).find(u => u.email === activeEmail);
       
-      if (!currentUser || currentUser.status === '無効') {
-        hideLoading(true);
-        document.getElementById('denied-email').innerText = activeEmail;
-        document.getElementById('access-denied-overlay').style.display = 'flex';
-        return;
-      }
-      
+      if (!currentUser || currentUser.status === '無効') { return; }
       const displayName = currentUser.name || activeEmail;
       document.getElementById('login-user-info').innerText = `${displayName} (${currentUser.role === 'admin' ? '管理者' : '一般'})`;
       
+      let initialYear = masterData.currentYear; 
+      if (masterData.periods && masterData.periods.length > 0) {
+        const firstMasterYear = String(masterData.periods[0].fy).replace(/\D/g, ''); 
+        if (firstMasterYear) initialYear = firstMasterYear; 
+      }
+      if (!initialYear) initialYear = '2025'; 
+      
       const settingYearEl = document.getElementById('settingCurrentYear');
       const targetYearEl = document.getElementById('targetYear');
-      if(settingYearEl) settingYearEl.value = masterData.currentYear || '2025';
-      if(targetYearEl) targetYearEl.value = masterData.currentYear || '2025';
+      if(settingYearEl) settingYearEl.value = initialYear;
+      if(targetYearEl) targetYearEl.value = initialYear;
       
-      updateMonthOptions(masterData.currentYear);
-      initTeamSettings(); 
+      updateMonthOptions(initialYear);
+      if (typeof initTeamSettings === 'function') initTeamSettings(); 
       applyUserPermissions(activeEmail); 
-      renderUserSettingsUI(); 
       
       document.getElementById('appSidebar').style.display = 'flex';
       document.getElementById('appMainContent').style.display = 'flex';
-      
       hideLoading(); 
-      
-    }).withFailureHandler(e => {
-      hideLoading(true);
-      handleGenericError(e, 'getInitialData');
-    }).getInitialData();
+    }).withFailureHandler(e => { hideLoading(true); }).getAppInitialData();
   };
+
+  function updateMonthOptions(year) {
+    const sel = document.getElementById('targetMonth');
+    if (!sel) return;
+    sel.innerHTML = ''; 
+    
+    if (masterData && masterData.periods && masterData.periods.length > 0) {
+      const cleanTargetFy = String(year).replace(/\D/g, '');
+      let addedCount = 0;
+      masterData.periods.forEach(p => {
+        const cleanPFy = String(p.fy).replace(/\D/g, '');
+        if (cleanPFy === cleanTargetFy || cleanPFy === '') {
+          sel.add(new Option(p.label, p.value));
+          addedCount++;
+        }
+      });
+      if (addedCount === 0) {
+        masterData.periods.forEach(p => { sel.add(new Option(p.label, p.value)); });
+      }
+    }
+  }
 
   function switchView(viewName) {
     document.querySelectorAll('.view, .nav-item').forEach(el => el.classList.remove('active'));
@@ -47,71 +59,12 @@
     if(viewEl) viewEl.classList.add('active');
     const activeNav = document.querySelector(`.nav-item[data-menu="${viewName}"]`);
     if(activeNav) activeNav.classList.add('active');
-    
-    // ★ 新しいレポートのタイトルを追加
-    const titles = { 
-      'dashboard': 'ダッシュボード', 'drilldown': '詳細分析', 'report': '報告資料 (サマリ)', 'report2': '報告資料 (コメント抜粋)',
-      'report_zaimu': '財務戦略会議用レポート', 'report_soukai': '創会用レポート',
-      'import': '取込管理', 'actualSettings': '実績データ表示設定', 'settings': '科目マスタ表示設定', 'segSettings': '報告部署編成', 'userSettings': 'ユーザー権限設定', 'close': 'システム設定・締め',
-      'manual': 'システム利用マニュアル（使い方）'
-    };
-    const titleEl = document.getElementById('page-title');
-    if(titleEl) titleEl.innerText = titles[viewName] || '';
-
-    const filterBox = document.getElementById('filter-controls');
-    if(filterBox) {
-      const isConfigPage = ['import', 'actualSettings', 'settings', 'segSettings', 'userSettings', 'close', 'manual'].includes(viewName);
-      filterBox.style.display = isConfigPage ? 'none' : 'block';
-    }
-
-    const initMsg = document.getElementById('initial-message');
-    if(initMsg) {
-      if(['dashboard', 'drilldown', 'report', 'report2', 'report_zaimu', 'report_soukai'].includes(viewName)) {
-        initMsg.style.display = globalPackage ? 'none' : 'block';
-      } else {
-        initMsg.style.display = 'none';
-      }
-    }
-
-    if(viewName === 'import') {
-      const iy = document.getElementById('importPageYear');
-      if(iy && iy.options.length === 0) {
-        iy.add(new Option('FY2026', '2026')); iy.add(new Option('FY2025', '2025'));
-        iy.add(new Option('FY2024', '2024'));
-        iy.value = masterData.currentYear || '2025';
-      }
-      loadImportStatus();
-    } else if (viewName === 'actualSettings') {
-      const actualYearEl = document.getElementById('actualSettingYear');
-      const targetYearEl = document.getElementById('targetYear');
-      if (actualYearEl && targetYearEl) actualYearEl.value = targetYearEl.value;
-      loadActualSettings();
-    } else if (viewName === 'settings') {
-      loadSubjectSettings();
-    } else if (viewName === 'close') {
-      loadConfirmedList();
-    }
   }
 
   function applyUserPermissions(userEmail) {
     let user = (masterData.users || []).find(u => u.email === userEmail);
     if(!user || user.status === '無効') return;
-
     const isAdmin = user.role === 'admin';
-    document.querySelectorAll('.nav-item').forEach(el => {
-      const menuId = el.getAttribute('data-menu');
-      if(!isAdmin && !(user.menus || []).includes(menuId) && menuId !== 'manual') {
-        el.style.display = 'none';
-      } else {
-        el.style.display = 'flex';
-      }
-    });
-    
-    document.querySelectorAll('.nav-section').forEach(sec => {
-      const items = Array.from(sec.querySelectorAll('.nav-item'));
-      const hasVisibleItem = items.some(item => item.style.display !== 'none');
-      sec.style.display = hasVisibleItem ? 'block' : 'none';
-    });
     
     const sel = document.getElementById('segment');
     if(sel) {
@@ -129,25 +82,18 @@
       const targetMonthEl = document.getElementById('targetMonth');
       const segmentEl = document.getElementById('segment');
       if(!targetMonthEl || !segmentEl) { alert("画面の初期化が完了していません。"); return; }
-      const period = targetMonthEl.value; 
-      const teamCd = segmentEl.value;
+      const period = targetMonthEl.value; const teamCd = segmentEl.value;
       if(!period || !teamCd) { alert("対象期間またはチームを選択してください。"); return; }
       
-      showLoading("データを読み込んでいます...");
-      const initMsg = document.getElementById('initial-message'); 
-      if(initMsg) initMsg.style.display = 'none'; 
+      showLoading("データを集計しています...");
 
       google.script.run.withSuccessHandler(pkg => {
         try { 
           if(pkg && pkg.error) { hideLoading(true); alert("データ取得エラー: " + pkg.error); return; }
           globalPackage = pkg || {}; 
           processAndRender(pkg);
-        } catch(e) { 
-          hideLoading(true); alert("表示処理中にエラーが発生しました\n内容: " + e.message);
-        }
-      }).withFailureHandler(e => {
-        hideLoading(true); alert("サーバー通信エラー\n内容: " + e.message);
-      }).getRawDataPackage(period, teamCd);
+        } catch(e) { hideLoading(true); alert("表示処理中にエラーが発生しました\n内容: " + e.message); }
+      }).withFailureHandler(e => { hideLoading(true); alert("サーバー通信エラー\n内容: " + e.message); }).getAppRawDataPackage(period, teamCd);
     } catch(err) { alert("エラー: " + err.message); }
   }
 
@@ -159,7 +105,7 @@
     const unitEl = document.getElementById('displayUnit'); 
     const unit = unitEl ? parseInt(unitEl.value) : 1000; 
     const isClosed = (pkg.closedStatus || {})[`${pkg.params.segmentCd}_${pkg.params.period}`] === true; 
-    setupCloseUI(isClosed);
+    if (typeof setupCloseUI === 'function') setupCloseUI(isClosed);
     
     const subjectMap = {};
     (pkg.masters.subject || []).slice(1).forEach(r => { 
@@ -170,58 +116,44 @@
       if (freeCd && isPL) { subjectMap[acctName] = true; } 
     });
 
-    const monthlyData = {}; 
-    (pkg.params.monthList || []).forEach(ym => monthlyData[ym] = { budget: 0, actual: 0, prevActual: 0 });
+    // 💡 創会レポート等で使うためにsubjectMapを記憶させておく
+    if (globalPackage) globalPackage.subjectMapCache = subjectMap;
+
     const analysisData = {};
     
-    function distributeData(row) {
-      if (!subjectMap[row.acctName]) return; 
+    (pkg.cacheData.currentMonthAllSegments || []).forEach(row => {
+      if (row.isPrev || !subjectMap[row.acctName]) return; 
       
-      if(monthlyData[row.month]) {
-        if (!row.isPrev) {
-          monthlyData[row.month][row.type === '予算' ? 'budget' : 'actual'] += row.amount;
-        } else {
-          monthlyData[row.month].prevActual += row.amount;
-        }
-      }
+      if (!analysisData[row.acctName]) analysisData[row.acctName] = { budget: 0, actual: 0, teams: {} };
+      analysisData[row.acctName][row.type === '予算' || String(row.type).includes('予算') ? 'budget' : 'actual'] += row.amount;
       
-      if (!row.isPrev && (pkg.params.reportTargetMonths || []).includes(row.month)) {
-        if (!analysisData[row.acctName]) analysisData[row.acctName] = { budget: 0, actual: 0, teams: {} };
-        analysisData[row.acctName][row.type === '予算' ? 'budget' : 'actual'] += row.amount;
-        
-        const tObj = (pkg.teamSettings || []).find(t => t.teamCd === row.teamCd);
-        let tCd = row.teamCd; let tName = row.teamName;
-        if (tObj && tObj.isHidden) { tCd = 'HIDDEN_TEAMS'; tName = 'その他（非表示チーム合算）'; }
+      const tObj = (pkg.teamSettings || []).find(t => t.teamCd === row.teamCd);
+      let tCd = row.teamCd; let tName = row.teamName;
+      if (tObj && tObj.isHidden) { tCd = 'HIDDEN_TEAMS'; tName = 'その他（非表示チーム合算）'; }
 
-        if (!analysisData[row.acctName].teams[tCd]) analysisData[row.acctName].teams[tCd] = { name: tName, budget: 0, actual: 0, segments: {} };
-        analysisData[row.acctName].teams[tCd][row.type === '予算' ? 'budget' : 'actual'] += row.amount;
-        
-        let sCd = row.segCd; 
-        let sName = ((masterData.segments || []).find(s=>s.cd===sCd)||{}).name || row.segName || sCd;
-        if (tObj && tObj.isHidden) { sCd = 'HIDDEN_SEGS'; sName = 'その他（非表示セグメント合算）'; }
+      if (!analysisData[row.acctName].teams[tCd]) analysisData[row.acctName].teams[tCd] = { name: tName, budget: 0, actual: 0, segments: {} };
+      analysisData[row.acctName].teams[tCd][row.type === '予算' || String(row.type).includes('予算') ? 'budget' : 'actual'] += row.amount;
+      
+      let sCd = row.segCd; 
+      let sName = ((masterData.segments || []).find(s=>s.cd===sCd)||{}).name || row.segName || sCd;
+      if (tObj && tObj.isHidden) { sCd = 'HIDDEN_SEGS'; sName = 'その他（非表示セグメント合算）'; }
 
-        if (!analysisData[row.acctName].teams[tCd].segments[sCd]) analysisData[row.acctName].teams[tCd].segments[sCd] = { name: sName, budget: 0, actual: 0, partners: {} };
-        analysisData[row.acctName].teams[tCd].segments[sCd][row.type === '予算' ? 'budget' : 'actual'] += row.amount;
-        
-        let pName = row.partnerName; 
-        if (tObj && tObj.isHidden) pName = 'その他（非表示取引先合算）';
+      if (!analysisData[row.acctName].teams[tCd].segments[sCd]) analysisData[row.acctName].teams[tCd].segments[sCd] = { name: sName, budget: 0, actual: 0, partners: {} };
+      analysisData[row.acctName].teams[tCd].segments[sCd][row.type === '予算' || String(row.type).includes('予算') ? 'budget' : 'actual'] += row.amount;
+      
+      let pName = row.partnerName; 
+      if (tObj && tObj.isHidden) pName = 'その他（非表示取引先合算）';
 
-        if (!analysisData[row.acctName].teams[tCd].segments[sCd].partners[pName]) analysisData[row.acctName].teams[tCd].segments[sCd].partners[pName] = { budget: 0, actual: 0 };
-        analysisData[row.acctName].teams[tCd].segments[sCd].partners[pName][row.type === '予算' ? 'budget' : 'actual'] += row.amount;
-      }
-    }
-    
-    (pkg.cacheData.budget || []).forEach(distributeData);
-    (pkg.cacheData.actuals || []).forEach(distributeData);
-    (pkg.cacheData.prevActuals || []).forEach(distributeData);
+      if (!analysisData[row.acctName].teams[tCd].segments[sCd].partners[pName]) analysisData[row.acctName].teams[tCd].segments[sCd].partners[pName] = { budget: 0, actual: 0 };
+      analysisData[row.acctName].teams[tCd].segments[sCd].partners[pName][row.type === '予算' || String(row.type).includes('予算') ? 'budget' : 'actual'] += row.amount;
+    });
 
-    renderDashboardSummary(monthlyData, unit, pkg.params); 
-    renderMatrixTable(pkg, subjectMap, unit); 
-    renderAnalysisTable(analysisData, unit, pkg.comments || {}, pkg.params.period, pkg.params.segmentCd, isClosed); 
-    renderReportView(pkg, subjectMap, unit, isClosed);
-    renderReport2View(pkg, subjectMap, unit);
-    
-    // ★ 新しいレポートのレンダリング呼び出し
+    // 🚨 ここを削ってしまっていました！全画面への描画命令を復活！
+    if (typeof renderDashboardSummary === 'function') renderDashboardSummary(pkg, subjectMap, unit); 
+    if (typeof renderMatrixTable === 'function') renderMatrixTable(pkg, subjectMap, unit); 
+    if (typeof renderAnalysisTable === 'function') renderAnalysisTable(analysisData, unit, pkg.comments || {}, pkg.params.period, pkg.params.segmentCd, isClosed); 
+    if (typeof renderReportView === 'function') renderReportView(pkg, subjectMap, unit, isClosed);
+    if (typeof renderReport2View === 'function') renderReport2View(pkg, subjectMap, unit);
     if (typeof renderReportZaimu === 'function') renderReportZaimu(pkg, subjectMap, unit);
     if (typeof renderReportSoukai === 'function') renderReportSoukai(pkg, subjectMap, unit);
   }

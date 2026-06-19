@@ -53,20 +53,31 @@
   }
 
   // --- 勘定科目 PL表示設定 ---
-  // ★ 安全な手動ロード関数に変更しました
   function loadSubjectSettings() {
     const tbody = document.getElementById('sub-settings-tbody');
     if(!tbody) return;
     
-    if (typeof globalPackage !== 'undefined' && globalPackage && globalPackage.subjects) {
+    // 💡 存在しないデータではなく、正しいマスタのデータを読みに行くように修正！
+    if (typeof globalPackage !== 'undefined' && globalPackage && globalPackage.masters && globalPackage.masters.subject) {
       tbody.innerHTML = '';
-      globalPackage.subjects.forEach(s => {
-        const isChecked = globalPackage.subjectSettings && globalPackage.subjectSettings[s.cd] !== undefined ? globalPackage.subjectSettings[s.cd] : true;
+      const subjects = globalPackage.masters.subject.slice(1);
+      subjects.forEach(r => {
+        const cd = String(r[1]).trim();
+        const name = String(r[2]).trim();
+        const desc = String(r[3] || '').trim();
+        if (!cd) return;
+        
+        const typeM = parseInt(r[6], 10) || 0; 
+        const cdNum = parseInt(cd, 10) || 0; 
+        let defaultPL = (typeM >= 100) || (cdNum >= 6000 && cdNum <= 6999); 
+        
+        const isChecked = globalPackage.subjectSettings && globalPackage.subjectSettings[cd] !== undefined ? globalPackage.subjectSettings[cd] : defaultPL;
+        
         tbody.innerHTML += `
           <tr>
-            <td style="text-align:center;"><input type="checkbox" class="sub-chk" id="chk_sub_${s.cd}" value="${s.cd}" ${isChecked ? 'checked' : ''}></td>
-            <td data-cd="${s.cd}">${s.name}</td>
-            <td>${s.desc || ''}</td>
+            <td style="text-align:center;"><input type="checkbox" class="sub-chk" id="chk_sub_${cd}" value="${cd}" ${isChecked ? 'checked' : ''}></td>
+            <td data-cd="${cd}">${name}</td>
+            <td>${desc}</td>
           </tr>
         `;
       });
@@ -75,7 +86,6 @@
     }
   }
 
-  // ★ タブ切り替え時などに安全に呼び出すためのリスナー
   document.addEventListener('click', function(e) {
       if(e.target && e.target.closest('[data-menu="settings"]')) {
           setTimeout(loadSubjectSettings, 300);
