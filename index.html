@@ -61,12 +61,15 @@
       <div class="nav-item" data-menu="report_soukai" onclick="switchView('report_soukai')"><span class="material-icons">campaign</span>創会用レポート</div>
     </div>
     
-    <div class="nav-section" data-menu="import,actualSettings,settings,segSettings,userSettings,close">
+    <div class="nav-section" data-menu="import,actualSettings,settings,segSettings,slideSettings,userSettings,close">
       <div style="margin: 20px 20px 5px 20px; font-size: 0.8rem; color: #7e8299; font-weight: bold;">各種設定・業務</div>
       <div class="nav-item" data-menu="import" onclick="switchView('import')"><span class="material-icons">cloud_sync</span>取込管理</div>
       <div class="nav-item" data-menu="actualSettings" onclick="switchView('actualSettings')"><span class="material-icons">rule</span>実績データ表示設定</div>
       <div class="nav-item" data-menu="settings" onclick="switchView('settings')"><span class="material-icons">settings</span>科目マスタ表示設定</div>
       <div class="nav-item" data-menu="segSettings" onclick="switchView('segSettings')"><span class="material-icons">corporate_fare</span>報告部署編成</div>
+      
+      <div class="nav-item" data-menu="slideSettings" onclick="switchView('slideSettings')"><span class="material-icons">slideshow</span>スライド連携設定</div>
+
       <div class="nav-item" data-menu="userSettings" onclick="switchView('userSettings')"><span class="material-icons">manage_accounts</span>ユーザー権限設定</div>
       <div class="nav-item" data-menu="close" onclick="switchView('close')"><span class="material-icons">lock</span>システム設定・締め</div>
     </div>
@@ -128,6 +131,8 @@
       <?!= include('view_userSettings'); ?>
       <?!= include('view_close'); ?>
       <?!= include('view_manual'); ?>
+
+      <?!= include('view_setting_slide'); ?>
 
     </div>
   </div>

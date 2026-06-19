@@ -1,9 +1,8 @@
 <script>
   // ==========================================
-  // 創会用レポート 画面用ロジック (3カラム横並び & 超軽量化テスト・監視カメラ版)
+  // 創会用レポート 画面用ロジック (強制1280px固定・絶対高画質版)
   // ==========================================
 
-  // 画像化エンジンのロード
   if (typeof html2canvas === 'undefined') {
       const script = document.createElement('script');
       script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
@@ -39,8 +38,8 @@
     printWindow.document.close();
   }
 
-  // ★ 監視カメラ付き・超軽量化テスト版
-  function exportAllTeamsToSlide() {
+  // 💡 【超強化版】画面の縮小率を無視して、強制的に1280pxの巨大サイズで撮影する！
+  async function exportAllTeamsToSlide() {
       if (typeof html2canvas === 'undefined') {
           alert('画像化エンジンの準備中です。数秒待ってからもう一度お試しください。');
           return;
@@ -49,77 +48,64 @@
       const teamCards = document.querySelectorAll('.team-print-card');
       if (teamCards.length === 0) { alert('出力するデータがありません。先に「画面に表示」を押してください。'); return; }
 
-      if (!confirm('【検証モード】スライドへ送信しますか？')) return;
+      if (!confirm('全チームのレポートを高画質でスライドへ送信しますか？\n（1チームずつ丁寧に処理するため少し時間がかかります）')) return;
 
-      showLoading(`スライド用の画像を生成中... (0 / ${teamCards.length})`);
-      console.log(`🔥 [検証A] スライド出力開始: 対象チームは ${teamCards.length} 個です`);
+      const msgEl = document.getElementById('loading-message');
+      showLoading(`スライド連携の準備中...`);
 
-      let imageDataArray = [];
-      let promiseChain = Promise.resolve();
-
-      Array.from(teamCards).forEach((card, index) => {
-          promiseChain = promiseChain.then(() => {
-              console.log(`🔥 [検証B] ${index+1}チーム目の画像化処理を開始します...`);
+      try {
+          for (let i = 0; i < teamCards.length; i++) {
+              const card = teamCards[i];
+              if(msgEl) msgEl.innerText = `高画質画像を生成中... (${i + 1} / ${teamCards.length} チーム目)`;
+              
               const printBtns = card.querySelectorAll('.print-btn');
               printBtns.forEach(b => b.style.display = 'none');
+              
+              // 元のスタイルを記憶
               const originalBoxShadow = card.style.boxShadow;
               const originalBorder = card.style.border;
+              const originalWidth = card.style.width;
+              const originalMaxWidth = card.style.maxWidth;
+              
+              // 💡 撮影する一瞬だけ、スタイルを強制的に書き換える（魔法のトリック）
               card.style.boxShadow = 'none'; 
               card.style.border = 'none';
+              card.style.width = '1280px';    // スライドに最適な1280pxに強制固定！
+              card.style.maxWidth = '1280px'; // 画面の縮小制限をぶち破る
               
-              // 🚨画質を1倍(最低限)に落とし、エンジン自体のログを出力させる
-              return html2canvas(card, { scale: 1, useCORS: true, backgroundColor: '#ffffff', logging: true }).then(canvas => {
-                  printBtns.forEach(b => b.style.display = '');
-                  card.style.boxShadow = originalBoxShadow;
-                  card.style.border = originalBorder;
-                  
-                  // 🚨画質を0.6(さらに圧縮)してデータ量を極小にする
-                  const base64Str = canvas.toDataURL('image/jpeg', 0.6); 
-                  console.log(`🔥 [検証C] ${index+1}チーム目の画像化完了！ データサイズ(目安): ${Math.round(base64Str.length / 1024)} KB`);
-                  
-                  imageDataArray.push({
-                      order: index,
-                      teamName: card.querySelector('h2').innerText.trim(),
-                      image: base64Str
-                  });
-                  
-                  const msgEl = document.getElementById('loading-message');
-                  if(msgEl) msgEl.innerText = `画像を生成中... (${index+1} / ${teamCards.length})`;
-              }).catch(err => {
-                  console.error(`❌ [検証エラー] ${index+1}チーム目の画像化で失敗:`, err);
-                  throw err;
+              const canvas = await html2canvas(card, { 
+                  scale: 2, 
+                  useCORS: true, 
+                  backgroundColor: '#ffffff',
+                  windowWidth: 1280 // HTML2Canvas側にも1280pxの画面だと信じ込ませる
               });
-          });
-      });
+              const base64Str = canvas.toDataURL('image/png');
+              const teamName = card.querySelector('h2').innerText.trim();
 
-      // 全部の画像化が終わったらGASへ送信
-      promiseChain.then(() => {
-          console.log(`🔥 [検証D] 全画像の生成完了（計${imageDataArray.length}枚）。GASへ送信を開始します...`);
-          const msgEl = document.getElementById('loading-message');
-          if(msgEl) msgEl.innerText = 'Googleスライドへデータを転送中...';
-          
-          const slideId = '1IrJGgwbPIy6uc8lhylHXzDTflQxnWSFKdfP0ADCpJl8';
+              // 撮影が終わったら、ユーザーの目に映る前に瞬時に元のサイズに戻す
+              printBtns.forEach(b => b.style.display = '');
+              card.style.boxShadow = originalBoxShadow;
+              card.style.border = originalBorder;
+              card.style.width = originalWidth;
+              card.style.maxWidth = originalMaxWidth;
+              
+              if(msgEl) msgEl.innerText = `Googleスライドへ送信中... (${i + 1} / ${teamCards.length} チーム目)`;
 
-          google.script.run.withSuccessHandler(res => {
-              hideLoading();
-              console.log("🔥 [検証F] GASから成功レスポンスを受信:", res);
-              if (res && res.error) {
-                  alert('スライド連携エラー:\n' + res.error);
-              } else {
-                  alert('🎉 スライドの生成が完了しました！\nOKを押すとスライドが開きます。');
-                  window.open(res.url, '_blank');
-              }
-          }).withFailureHandler(e => {
-              hideLoading();
-              console.error("❌ [検証エラー] GAS通信で失敗:", e);
-              alert('通信エラー: ' + e.message);
-          }).exportDashboardToSlides(imageDataArray, slideId);
-          console.log("🔥 [検証E] GAS(exportDashboardToSlides)への送信コマンドを発行しました！返事待ちです...");
-      }).catch(err => {
+              await new Promise((resolve, reject) => {
+                  google.script.run
+                      .withSuccessHandler(resolve)
+                      .withFailureHandler(reject)
+                      .appendSingleSlideImage(teamName, base64Str, i === 0);
+              });
+          }
+
           hideLoading();
-          console.error("❌ [検証エラー] 全体プロセスのどこかで失敗:", err);
+          alert('🎉 全チームの高画質スライドの生成が完了しました！\n「スライド連携設定」で指定したURLを開いて確認してください。');
+      } catch (err) {
+          hideLoading();
+          console.error(err);
           alert('処理中にエラーが発生しました: ' + err.message);
-      });
+      }
   }
 
   function getVarianceStyle(diff) {

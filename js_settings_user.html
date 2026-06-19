@@ -18,13 +18,14 @@
     div.className = 'user-setting-row'; 
     div.style.cssText = 'background:#fbfcfd; border:1px solid #e4e6ef; border-radius:8px; padding:20px; position:relative; box-shadow:0 2px 4px rgba(0,0,0,0.02);';
     
-    // ★ 許可メニューに新しい2つのレポートを追加
+    // 💡 許可メニューに「スライド連携設定(メニュー)」と「スライド出力機能」を追加！
     const allMenus = [
       {id:'dashboard', name:'ダッシュボード'}, {id:'drilldown', name:'詳細分析'}, 
       {id:'report', name:'報告資料(サマリ)'}, {id:'report2', name:'報告資料(抜粋)'}, 
       {id:'report_zaimu', name:'財務戦略会議用'}, {id:'report_soukai', name:'創会用'}, 
       {id:'import', name:'取込管理'}, {id:'actualSettings', name:'実績表示設定'}, 
       {id:'settings', name:'科目マスタ設定'}, {id:'segSettings', name:'報告部署編成'}, 
+      {id:'slideSettings', name:'スライド連携設定'}, {id:'slideExport', name:'★スライド出力機能'},
       {id:'userSettings', name:'権限設定'}, {id:'close', name:'締め'}
     ];
     const menuHtml = allMenus.map(m => `<label style="display:inline-block; width:48%; font-size:0.85rem; margin-bottom:8px; cursor:pointer;"><input type="checkbox" class="u-menu-${idx}" value="${m.id}" ${(user.menus || []).includes(m.id) ? 'checked' : ''} style="margin-right:5px; vertical-align:middle;">${m.name}</label>`).join('');
@@ -141,9 +142,9 @@
   }
 
   function exportUserSettingsCSV() {
-    // ★ CSVヘッダーとキー配列の更新
-    const menuKeys = ['dashboard', 'drilldown', 'report', 'report2', 'report_zaimu', 'report_soukai', 'import', 'actualSettings', 'settings', 'segSettings', 'userSettings', 'close'];
-    let csv = '\uFEFFメールアドレス,氏名,権限(admin/user),ステータス(有効/無効),メモ,ダッシュボード,詳細分析,報告資料(サマリ),報告資料(抜粋),財務戦略会議用,創会用,取込管理,実績表示設定,科目マスタ設定,報告部署編成,権限設定,締め設定,許可セグメントCDまたはチームCD(カンマ区切り)\n';
+    // 💡 新規追加したメニューのキーもCSVに反映
+    const menuKeys = ['dashboard', 'drilldown', 'report', 'report2', 'report_zaimu', 'report_soukai', 'import', 'actualSettings', 'settings', 'segSettings', 'slideSettings', 'slideExport', 'userSettings', 'close'];
+    let csv = '\uFEFFメールアドレス,氏名,権限(admin/user),ステータス(有効/無効),メモ,ダッシュボード,詳細分析,報告資料(サマリ),報告資料(抜粋),財務戦略会議用,創会用,取込管理,実績表示設定,科目マスタ設定,報告部署編成,スライド連携設定(左メニュー),スライド出力機能(ボタン),権限設定,締め設定,許可セグメントCDまたはチームCD(カンマ区切り)\n';
     
     (masterData.users || []).forEach(u => {
       let row = [

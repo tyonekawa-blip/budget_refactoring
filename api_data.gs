@@ -272,44 +272,68 @@ function getAppRawDataPackage(targetPeriod, targetTeamCd) {
 }
 
 // =========================================
-// 🚀 魔法のスライド連携関数 (Route B: 画像化)
 // =========================================
-function exportDashboardToSlides(imageDataArray, slideId) {
+// 🚀 高画質スライド用: 1枚ずつ受け取って貼り付ける関数
+// =========================================
+function appendSingleSlideImage(teamName, base64Data, isFirstSlide) {
   try {
+    const props = PropertiesService.getScriptProperties().getProperties();
+    const slideId = props['SLIDE_EXPORT_ID'] || '1IrJGgwbPIy6uc8lhylHXzDTflQxnWSFKdfP0ADCpJl8';
     const presentation = SlidesApp.openById(slideId);
     
-    // オプション: 既存のスライドをリセットしたい場合は以下のコメントアウトを外す
-    // const slides = presentation.getSlides();
-    // if(slides.length > 1) { for(let i=1; i<slides.length; i++){ slides[i].remove(); } }
+    // (オプション) もし「1枚目」の送信なら、既存のスライドを全削除して綺麗にする
+    // if (isFirstSlide) {
+    //   const slides = presentation.getSlides();
+    //   if(slides.length > 1) { for(let i=1; i<slides.length; i++){ slides[i].remove(); } }
+    // }
     
-    imageDataArray.forEach(data => {
-      // 画像の種類(JPEG/PNG)を動的に判別し、Blobを生成
-      const mimeType = data.image.match(/data:(.*?);/)[1] || 'image/jpeg';
-      const base64Data = data.image.split(',')[1];
-      const ext = mimeType === 'image/png' ? '.png' : '.jpg';
-      
-      const blob = Utilities.newBlob(Utilities.base64Decode(base64Data), mimeType, data.teamName + ext);
-      
-      const slide = presentation.appendSlide(SlidesApp.PredefinedLayout.BLANK);
-      const image = slide.insertImage(blob);
-      
-      // 画像をスライドの中央にピッタリ合わせる計算
-      const pageWidth = presentation.getPageWidth();
-      const pageHeight = presentation.getPageHeight();
-      const imgWidth = image.getWidth();
-      const imgHeight = image.getHeight();
-      
-      const ratio = Math.min(pageWidth / imgWidth, pageHeight / imgHeight);
-      const newWidth = imgWidth * ratio;
-      const newHeight = imgHeight * ratio;
-      
-      image.setWidth(newWidth);
-      image.setHeight(newHeight);
-      image.setLeft((pageWidth - newWidth) / 2);
-      image.setTop((pageHeight - newHeight) / 2);
-    });
+    // Blob(画像データ)の生成
+    const mimeType = 'image/png';
+    const cleanBase64 = base64Data.replace(/^data:image\/png;base64,/, "");
+    const blob = Utilities.newBlob(Utilities.base64Decode(cleanBase64), mimeType, teamName + '.png');
+    
+    const slide = presentation.appendSlide(SlidesApp.PredefinedLayout.BLANK);
+    const image = slide.insertImage(blob);
+    
+    // 中央にA4比率で最大化配置
+    const pageWidth = presentation.getPageWidth();
+    const pageHeight = presentation.getPageHeight();
+    const imgWidth = image.getWidth();
+    const imgHeight = image.getHeight();
+    
+    const ratio = Math.min(pageWidth / imgWidth, pageHeight / imgHeight);
+    const newWidth = imgWidth * ratio;
+    const newHeight = imgHeight * ratio;
+    
+    image.setWidth(newWidth);
+    image.setHeight(newHeight);
+    image.setLeft((pageWidth - newWidth) / 2);
+    image.setTop((pageHeight - newHeight) / 2);
 
-    return { success: true, url: presentation.getUrl() };
+    return { success: true };
+  } catch (e) {
+    throw new Error("スライド書き込みエラー: " + e.message);
+  }
+}
+
+// =========================================
+// ⚙️ 新規追加: スライドURL設定の保存
+// =========================================
+function saveSlideUrlConfig(url) {
+  try {
+    let slideId = "";
+    const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (match && match[1]) {
+      slideId = match[1];
+    } else {
+      slideId = url.trim(); 
+    }
+    
+    if(!slideId) throw new Error("有効なGoogleスライドのURLを入力してください。");
+
+    PropertiesService.getScriptProperties().setProperty('SLIDE_EXPORT_URL', url);
+    PropertiesService.getScriptProperties().setProperty('SLIDE_EXPORT_ID', slideId);
+    return { success: true, slideId: slideId };
   } catch (e) {
     return { error: e.message };
   }

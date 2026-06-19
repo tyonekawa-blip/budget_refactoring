@@ -10,12 +10,8 @@
       const displayName = currentUser.name || activeEmail;
       document.getElementById('login-user-info').innerText = `${displayName} (${currentUser.role === 'admin' ? '管理者' : '一般'})`;
       
-      let initialYear = masterData.currentYear; 
-      if (masterData.periods && masterData.periods.length > 0) {
-        const firstMasterYear = String(masterData.periods[0].fy).replace(/\D/g, ''); 
-        if (firstMasterYear) initialYear = firstMasterYear; 
-      }
-      if (!initialYear) initialYear = '2025'; 
+      // 💡 ご要望通り、ダッシュボードを開いた時の初期年度を '2025' に強制固定します。
+      let initialYear = '2025'; 
       
       const settingYearEl = document.getElementById('settingCurrentYear');
       const targetYearEl = document.getElementById('targetYear');
@@ -59,12 +55,74 @@
     if(viewEl) viewEl.classList.add('active');
     const activeNav = document.querySelector(`.nav-item[data-menu="${viewName}"]`);
     if(activeNav) activeNav.classList.add('active');
+
+    const titles = { 
+      'dashboard': 'ダッシュボード', 'drilldown': '詳細分析', 'report': '報告資料 (サマリ)', 'report2': '報告資料 (コメント抜粋)',
+      'report_zaimu': '財務戦略会議用レポート', 'report_soukai': '創会用レポート',
+      'import': '取込管理', 'actualSettings': '実績データ表示設定', 'settings': '科目マスタ表示設定', 
+      'segSettings': '報告部署編成', 'slideSettings': 'スライド連携設定', 'userSettings': 'ユーザー権限設定', 
+      'close': 'システム設定・締め', 'manual': 'システム利用マニュアル（使い方）'
+    };
+    const titleEl = document.getElementById('page-title');
+    if(titleEl) titleEl.innerText = titles[viewName] || '';
+
+    const filterBox = document.getElementById('filter-controls');
+    if(filterBox) {
+      const isConfigPage = ['import', 'actualSettings', 'settings', 'segSettings', 'slideSettings', 'userSettings', 'close', 'manual'].includes(viewName);
+      filterBox.style.display = isConfigPage ? 'none' : 'block';
+    }
+
+    const initMsg = document.getElementById('initial-message');
+    if(initMsg) {
+      if(['dashboard', 'drilldown', 'report', 'report2', 'report_zaimu', 'report_soukai'].includes(viewName)) {
+        initMsg.style.display = globalPackage ? 'none' : 'block';
+      } else {
+        initMsg.style.display = 'none';
+      }
+    }
+
+    if(viewName === 'import') {
+      const iy = document.getElementById('importPageYear');
+      if(iy && iy.options.length === 0) {
+        iy.add(new Option('FY2026', '2026')); iy.add(new Option('FY2025', '2025')); iy.add(new Option('FY2024', '2024'));
+        iy.value = masterData.currentYear || '2025';
+      }
+      if (typeof loadImportStatus === 'function') loadImportStatus();
+    } else if (viewName === 'actualSettings') {
+      const actualYearEl = document.getElementById('actualSettingYear'); const targetYearEl = document.getElementById('targetYear');
+      if (actualYearEl && targetYearEl) actualYearEl.value = targetYearEl.value;
+      if (typeof loadActualSettings === 'function') loadActualSettings();
+    } else if (viewName === 'settings') { 
+      if (typeof loadSubjectSettings === 'function') loadSubjectSettings();
+    } else if (viewName === 'close') { 
+      if (typeof loadConfirmedList === 'function') loadConfirmedList(); 
+    }
   }
 
   function applyUserPermissions(userEmail) {
     let user = (masterData.users || []).find(u => u.email === userEmail);
     if(!user || user.status === '無効') return;
+
     const isAdmin = user.role === 'admin';
+    
+    // 💡 ご要望の機能: 「スライド出力機能」の権限があるかチェック
+    const canExportSlide = isAdmin || (user.menus || []).includes('slideExport');
+    document.querySelectorAll('.btn-slide-export').forEach(btn => {
+      // 権限がなければボタン自体を画面から消し去る
+      btn.style.display = canExportSlide ? 'flex' : 'none';
+    });
+
+    document.querySelectorAll('.nav-item').forEach(el => {
+      const menuId = el.getAttribute('data-menu');
+      if(!isAdmin && !(user.menus || []).includes(menuId) && menuId !== 'manual') { el.style.display = 'none'; } 
+      else { el.style.display = 'flex'; }
+    });
+    
+    document.querySelectorAll('.nav-section').forEach(sec => {
+      const items = Array.from(sec.querySelectorAll('.nav-item'));
+      const hasVisibleItem = items.some(item => item.style.display !== 'none');
+      sec.style.display = hasVisibleItem ? 'block' : 'none';
+    });
     
     const sel = document.getElementById('segment');
     if(sel) {
@@ -116,7 +174,6 @@
       if (freeCd && isPL) { subjectMap[acctName] = true; } 
     });
 
-    // 💡 創会レポート等で使うためにsubjectMapを記憶させておく
     if (globalPackage) globalPackage.subjectMapCache = subjectMap;
 
     const analysisData = {};
@@ -148,7 +205,6 @@
       analysisData[row.acctName].teams[tCd].segments[sCd].partners[pName][row.type === '予算' || String(row.type).includes('予算') ? 'budget' : 'actual'] += row.amount;
     });
 
-    // 🚨 ここを削ってしまっていました！全画面への描画命令を復活！
     if (typeof renderDashboardSummary === 'function') renderDashboardSummary(pkg, subjectMap, unit); 
     if (typeof renderMatrixTable === 'function') renderMatrixTable(pkg, subjectMap, unit); 
     if (typeof renderAnalysisTable === 'function') renderAnalysisTable(analysisData, unit, pkg.comments || {}, pkg.params.period, pkg.params.segmentCd, isClosed); 
